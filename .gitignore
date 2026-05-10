@@ -32,4 +32,11 @@ Content/Developers/
 Content/*_HLOD*.uasset
 Content/**/*_HLOD*.uasset
 
+# Duplicate root-level test assets; canonical assets live under Content/PlaneToPBR and Content/Maps.
+Content/BP_PlaneToPBR_Test.uasset
+Content/M_PlaneToPBR.uasset
+Content/test.umap
+Content/__ExternalActors__/test/
+Content/__ExternalObjects__/test/
+
 # Generated PlaneToPBR runtime outputs are under Saved/, which is ignored above.
