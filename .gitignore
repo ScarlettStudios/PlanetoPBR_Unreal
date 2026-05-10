@@ -7,6 +7,9 @@ Saved/
 # IDE/editor local state
 .vs/
 .idea/
+Content/Collections/
+Content/Developers/
+*.sln
 *.suo
 *.user
 *.userosscache
