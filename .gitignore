@@ -3,6 +3,8 @@ Binaries/
 DerivedDataCache/
 Intermediate/
 Saved/
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
 
 # IDE/editor local state
 .vs/
