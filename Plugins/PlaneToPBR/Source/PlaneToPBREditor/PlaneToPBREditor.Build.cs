@@ -20,7 +20,8 @@ public class PlaneToPBREditor : ModuleRules
 			"ToolMenus",
 			"Slate",
 			"SlateCore",
-			"EditorFramework"
+			"EditorFramework",
+			"DesktopPlatform"
 		});
 	}
 }
