@@ -86,6 +86,33 @@ FReply FPlaneToPBREditorModule::BrowseForImage()
 	return FReply::Handled();
 }
 
+FReply FPlaneToPBREditorModule::GeneratePBRPlane()
+{
+	const FString TrimmedPrompt = WorkflowState.HFPrompt.TrimStartAndEnd();
+	const FString TrimmedImagePath = WorkflowState.ImagePath.TrimStartAndEnd();
+
+	if (TrimmedImagePath.IsEmpty())
+	{
+		if (StatusTextBlock.IsValid())
+		{
+			StatusTextBlock->SetText(LOCTEXT("MissingImagePathStatus", "Image path is required."));
+		}
+		return FReply::Handled();
+	}
+
+	if (StatusTextBlock.IsValid())
+	{
+		StatusTextBlock->SetText(FText::Format(
+			LOCTEXT("ReadyToGenerateStatus", "Ready to generate PBR plane from image: {0}{1}"),
+			FText::FromString(TrimmedImagePath),
+			TrimmedPrompt.IsEmpty()
+				? FText::GetEmpty()
+				: FText::Format(LOCTEXT("ReadyPromptSuffix", " with prompt: {0}"), FText::FromString(TrimmedPrompt))));
+	}
+
+	return FReply::Handled();
+}
+
 void FPlaneToPBREditorModule::OnHFPromptChanged(const FText& NewText)
 {
 	WorkflowState.HFPrompt = NewText.ToString();
@@ -171,7 +198,15 @@ TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTab
 						SNew(SButton)
 						.HAlign(HAlign_Center)
 						.Text(LOCTEXT("GeneratePBRPlaneButton", "Generate PBR Plane"))
+						.OnClicked_Raw(this, &FPlaneToPBREditorModule::GeneratePBRPlane)
 					]
+				]
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+				[
+					SAssignNew(StatusTextBlock, STextBlock)
+					.Text(LOCTEXT("InitialStatusText", ""))
 				]
 			]
 		];

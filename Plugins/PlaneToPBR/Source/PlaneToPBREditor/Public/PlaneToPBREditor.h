@@ -4,6 +4,7 @@
 
 class SEditableTextBox;
 class SDockTab;
+class STextBlock;
 
 class FPlaneToPBREditorModule : public IModuleInterface
 {
@@ -21,10 +22,12 @@ private:
 	void RegisterMenus();
 	void OpenPlaneToPBRTab();
 	FReply BrowseForImage();
+	FReply GeneratePBRPlane();
 	void OnHFPromptChanged(const FText& NewText);
 	void OnImagePathChanged(const FText& NewText);
 	TSharedRef<SDockTab> SpawnPlaneToPBRTab(const class FSpawnTabArgs& SpawnTabArgs);
 
 	FPlaneToPBRWorkflowState WorkflowState;
 	TSharedPtr<SEditableTextBox> ImagePathTextBox;
+	TSharedPtr<STextBlock> StatusTextBlock;
 };
