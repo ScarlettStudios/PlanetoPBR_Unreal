@@ -79,10 +79,21 @@ FReply FPlaneToPBREditorModule::BrowseForImage()
 
 	if (bFileSelected && SelectedFilePaths.Num() > 0 && ImagePathTextBox.IsValid())
 	{
-		ImagePathTextBox->SetText(FText::FromString(SelectedFilePaths[0]));
+		WorkflowState.ImagePath = SelectedFilePaths[0];
+		ImagePathTextBox->SetText(FText::FromString(WorkflowState.ImagePath));
 	}
 
 	return FReply::Handled();
+}
+
+void FPlaneToPBREditorModule::OnHFPromptChanged(const FText& NewText)
+{
+	WorkflowState.HFPrompt = NewText.ToString();
+}
+
+void FPlaneToPBREditorModule::OnImagePathChanged(const FText& NewText)
+{
+	WorkflowState.ImagePath = NewText.ToString();
 }
 
 TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTabArgs& SpawnTabArgs)
@@ -114,6 +125,8 @@ TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTab
 					.FillWidth(1.0f)
 					[
 						SNew(SEditableTextBox)
+						.Text(FText::FromString(WorkflowState.HFPrompt))
+						.OnTextChanged_Raw(this, &FPlaneToPBREditorModule::OnHFPromptChanged)
 					]
 				]
 				+ SVerticalBox::Slot()
@@ -125,17 +138,19 @@ TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTab
 					.AutoWidth()
 					.VAlign(VAlign_Center)
 					[
-							SNew(SBox)
-							.WidthOverride(72.0f)
-							[
-								SNew(STextBlock)
-								.Text(LOCTEXT("ImageLabel", "Image:"))
+						SNew(SBox)
+						.WidthOverride(72.0f)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("ImageLabel", "Image:"))
 						]
 					]
 					+ SHorizontalBox::Slot()
 					.FillWidth(1.0f)
 					[
 						SAssignNew(ImagePathTextBox, SEditableTextBox)
+						.Text(FText::FromString(WorkflowState.ImagePath))
+						.OnTextChanged_Raw(this, &FPlaneToPBREditorModule::OnImagePathChanged)
 					]
 					+ SHorizontalBox::Slot()
 					.AutoWidth()
