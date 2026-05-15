@@ -1,6 +1,8 @@
 #include "PlaneToPBREditor.h"
 
 #include "ToolMenus.h"
+#include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Docking/SDockTab.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
@@ -60,22 +62,71 @@ TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTab
 		.TabRole(ETabRole::NomadTab)
 		[
 			SNew(SBorder)
-			.Padding(24.0f)
+			.Padding(12.0f)
 			[
 				SNew(SVerticalBox)
 				+ SVerticalBox::Slot()
 				.AutoHeight()
+				.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 				[
-					SNew(STextBlock)
-					.Text(LOCTEXT("PlaneToPBRHeading", "PlaneToPBR"))
-					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 18))
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					[
+						SNew(SBox)
+						.WidthOverride(72.0f)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("HFPromptLabel", "HF Prompt"))
+						]
+					]
+					+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					[
+						SNew(SEditableTextBox)
+					]
 				]
 				+ SVerticalBox::Slot()
 				.AutoHeight()
-				.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+				.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 				[
-					SNew(STextBlock)
-					.Text(LOCTEXT("PlaneToPBRPlaceholder", "Texture generation and Unreal asset creation controls will be added here."))
+					SNew(SHorizontalBox)
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.VAlign(VAlign_Center)
+					[
+							SNew(SBox)
+							.WidthOverride(72.0f)
+							[
+								SNew(STextBlock)
+								.Text(LOCTEXT("ImageLabel", "Image:"))
+						]
+					]
+					+ SHorizontalBox::Slot()
+					.FillWidth(1.0f)
+					[
+						SNew(SEditableTextBox)
+					]
+					+ SHorizontalBox::Slot()
+					.AutoWidth()
+					.Padding(4.0f, 0.0f, 0.0f, 0.0f)
+					[
+						SNew(SButton)
+						.Text(LOCTEXT("BrowseImageButton", "..."))
+					]
+				]
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.HAlign(HAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(440.0f)
+					[
+						SNew(SButton)
+						.HAlign(HAlign_Center)
+						.Text(LOCTEXT("GeneratePBRPlaneButton", "Generate PBR Plane"))
+					]
 				]
 			]
 		];
