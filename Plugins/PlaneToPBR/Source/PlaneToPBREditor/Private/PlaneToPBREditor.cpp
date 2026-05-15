@@ -1,5 +1,8 @@
 #include "PlaneToPBREditor.h"
 
+#include "DesktopPlatformModule.h"
+#include "Framework/Application/SlateApplication.h"
+#include "IDesktopPlatform.h"
 #include "ToolMenus.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -56,6 +59,32 @@ void FPlaneToPBREditorModule::OpenPlaneToPBRTab()
 	FGlobalTabmanager::Get()->TryInvokeTab(PlaneToPBREditor::TabName);
 }
 
+FReply FPlaneToPBREditorModule::BrowseForImage()
+{
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (!DesktopPlatform)
+	{
+		return FReply::Handled();
+	}
+
+	TArray<FString> SelectedFilePaths;
+	const bool bFileSelected = DesktopPlatform->OpenFileDialog(
+		FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr),
+		TEXT("Select PlaneToPBR Source Image"),
+		FString(),
+		FString(),
+		TEXT("Image Files (*.png;*.jpg;*.jpeg;*.exr)|*.png;*.jpg;*.jpeg;*.exr|All Files (*.*)|*.*"),
+		EFileDialogFlags::None,
+		SelectedFilePaths);
+
+	if (bFileSelected && SelectedFilePaths.Num() > 0 && ImagePathTextBox.IsValid())
+	{
+		ImagePathTextBox->SetText(FText::FromString(SelectedFilePaths[0]));
+	}
+
+	return FReply::Handled();
+}
+
 TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTabArgs& SpawnTabArgs)
 {
 	return SNew(SDockTab)
@@ -106,7 +135,7 @@ TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTab
 					+ SHorizontalBox::Slot()
 					.FillWidth(1.0f)
 					[
-						SNew(SEditableTextBox)
+						SAssignNew(ImagePathTextBox, SEditableTextBox)
 					]
 					+ SHorizontalBox::Slot()
 					.AutoWidth()
@@ -114,6 +143,7 @@ TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTab
 					[
 						SNew(SButton)
 						.Text(LOCTEXT("BrowseImageButton", "..."))
+						.OnClicked_Raw(this, &FPlaneToPBREditorModule::BrowseForImage)
 					]
 				]
 				+ SVerticalBox::Slot()
