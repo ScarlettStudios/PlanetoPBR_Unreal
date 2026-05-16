@@ -86,7 +86,8 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 			const FString Boundary = TEXT("----Boundary") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
 			const FString FileName = FPaths::GetCleanFilename(Request.ImagePath);
-			const TArray<uint8> UploadBody = BuildMultipartUploadBody(Boundary, FileName, ImageBytes);
+			const FString MimeType = GetMimeTypeForImagePath(Request.ImagePath);
+			const TArray<uint8> UploadBody = BuildMultipartUploadBody(Boundary, FileName, MimeType, ImageBytes);
 
 			const TSharedRef<IHttpRequest> UploadRequest = FHttpModule::Get().CreateRequest();
 			UploadRequest->SetURL(PlaneToPBRHuggingFace::SpaceBaseUrl / TEXT("gradio_api/upload"));
@@ -94,7 +95,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 			UploadRequest->SetHeader(TEXT("Content-Type"), FString::Printf(TEXT("multipart/form-data; boundary=%s"), *Boundary));
 			UploadRequest->SetContent(UploadBody);
 			UploadRequest->OnProcessRequestComplete().BindLambda(
-				[CompletionCallback = MoveTemp(CompletionCallback)](
+				[Request, PredictFunctionIndex, ImageSizeBytes = ImageBytes.Num(), FileName, MimeType, CompletionCallback = MoveTemp(CompletionCallback)](
 					FHttpRequestPtr UploadRequestPtr,
 					FHttpResponsePtr UploadResponse,
 					bool bUploadConnectedSuccessfully) mutable
@@ -122,10 +123,60 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 						return;
 					}
 
-					PlaneToPBRHuggingFace::CompleteRequest(
-						MoveTemp(CompletionCallback),
-						true,
-						FString::Printf(TEXT("Uploaded image to Hugging Face path: %s"), *UploadedPath));
+					const FString SessionHash = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+					const FString QueueJoinPayload = BuildQueueJoinPayload(
+						UploadedPath,
+						FileName,
+						ImageSizeBytes,
+						MimeType,
+						Request.HFPrompt,
+						PredictFunctionIndex,
+						SessionHash);
+
+					const TSharedRef<IHttpRequest> QueueJoinRequest = FHttpModule::Get().CreateRequest();
+					QueueJoinRequest->SetURL(PlaneToPBRHuggingFace::SpaceBaseUrl / TEXT("gradio_api/queue/join"));
+					QueueJoinRequest->SetVerb(TEXT("POST"));
+					QueueJoinRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+					QueueJoinRequest->SetContentAsString(QueueJoinPayload);
+					QueueJoinRequest->OnProcessRequestComplete().BindLambda(
+						[CompletionCallback = MoveTemp(CompletionCallback), SessionHash](
+							FHttpRequestPtr QueueJoinRequestPtr,
+							FHttpResponsePtr QueueJoinResponse,
+							bool bQueueJoinConnectedSuccessfully) mutable
+						{
+							if (!bQueueJoinConnectedSuccessfully || !QueueJoinResponse.IsValid())
+							{
+								PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to join Hugging Face generation queue."));
+								return;
+							}
+
+							if (QueueJoinResponse->GetResponseCode() < 200 || QueueJoinResponse->GetResponseCode() >= 300)
+							{
+								PlaneToPBRHuggingFace::CompleteRequest(
+									MoveTemp(CompletionCallback),
+									false,
+									FString::Printf(TEXT("Hugging Face queue join failed with HTTP %d."), QueueJoinResponse->GetResponseCode()));
+								return;
+							}
+
+							FString EventId;
+							FString QueueParseErrorMessage;
+							if (!TryParseQueueEventId(QueueJoinResponse->GetContentAsString(), EventId, QueueParseErrorMessage))
+							{
+								PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, QueueParseErrorMessage);
+								return;
+							}
+
+							PlaneToPBRHuggingFace::CompleteRequest(
+								MoveTemp(CompletionCallback),
+								true,
+								FString::Printf(TEXT("Joined Hugging Face queue. Event ID: %s Session: %s"), *EventId, *SessionHash));
+						});
+
+					if (!QueueJoinRequest->ProcessRequest())
+					{
+						PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face queue join request."));
+					}
 				});
 
 			if (!UploadRequest->ProcessRequest())
@@ -206,15 +257,38 @@ bool FPlaneToPBRHuggingFaceClient::TryReadImageFile(const FString& ImagePath, TA
 	return true;
 }
 
+FString FPlaneToPBRHuggingFaceClient::GetMimeTypeForImagePath(const FString& ImagePath)
+{
+	const FString Extension = FPaths::GetExtension(ImagePath).ToLower();
+	if (Extension == TEXT("jpg") || Extension == TEXT("jpeg"))
+	{
+		return TEXT("image/jpeg");
+	}
+
+	if (Extension == TEXT("exr"))
+	{
+		return TEXT("image/x-exr");
+	}
+
+	if (Extension == TEXT("png"))
+	{
+		return TEXT("image/png");
+	}
+
+	return TEXT("application/octet-stream");
+}
+
 TArray<uint8> FPlaneToPBRHuggingFaceClient::BuildMultipartUploadBody(
 	const FString& Boundary,
 	const FString& FileName,
+	const FString& MimeType,
 	const TArray<uint8>& ImageBytes)
 {
 	const FString Header = FString::Printf(
-		TEXT("--%s\r\nContent-Disposition: form-data; name=\"files\"; filename=\"%s\"\r\nContent-Type: image/png\r\n\r\n"),
+		TEXT("--%s\r\nContent-Disposition: form-data; name=\"files\"; filename=\"%s\"\r\nContent-Type: %s\r\n\r\n"),
 		*Boundary,
-		*FileName);
+		*FileName,
+		*MimeType);
 	const FString Footer = FString::Printf(TEXT("\r\n--%s--\r\n"), *Boundary);
 
 	TArray<uint8> Body;
@@ -247,6 +321,56 @@ bool FPlaneToPBRHuggingFaceClient::TryParseUploadPath(const FString& UploadJson,
 	if (OutUploadedPath.IsEmpty())
 	{
 		OutErrorMessage = TEXT("Hugging Face upload response did not include an uploaded path.");
+		return false;
+	}
+
+	return true;
+}
+
+FString FPlaneToPBRHuggingFaceClient::BuildQueueJoinPayload(
+	const FString& UploadedPath,
+	const FString& OriginalFileName,
+	int32 ImageSizeBytes,
+	const FString& MimeType,
+	const FString& HFPrompt,
+	int32 PredictFunctionIndex,
+	const FString& SessionHash)
+{
+	const TSharedRef<FJsonObject> ImageObject = MakeShared<FJsonObject>();
+	ImageObject->SetStringField(TEXT("path"), UploadedPath);
+	ImageObject->SetStringField(TEXT("orig_name"), OriginalFileName);
+	ImageObject->SetNumberField(TEXT("size"), ImageSizeBytes);
+	ImageObject->SetStringField(TEXT("mime_type"), MimeType);
+
+	TArray<TSharedPtr<FJsonValue>> DataValues;
+	DataValues.Add(MakeShared<FJsonValueObject>(ImageObject));
+	DataValues.Add(MakeShared<FJsonValueString>(HFPrompt));
+
+	const TSharedRef<FJsonObject> PayloadObject = MakeShared<FJsonObject>();
+	PayloadObject->SetArrayField(TEXT("data"), DataValues);
+	PayloadObject->SetField(TEXT("event_data"), MakeShared<FJsonValueNull>());
+	PayloadObject->SetNumberField(TEXT("fn_index"), PredictFunctionIndex);
+	PayloadObject->SetStringField(TEXT("session_hash"), SessionHash);
+
+	FString SerializedPayload;
+	const TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&SerializedPayload);
+	FJsonSerializer::Serialize(PayloadObject, JsonWriter);
+	return SerializedPayload;
+}
+
+bool FPlaneToPBRHuggingFaceClient::TryParseQueueEventId(const FString& QueueJoinJson, FString& OutEventId, FString& OutErrorMessage)
+{
+	TSharedPtr<FJsonObject> QueueJoinObject;
+	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(QueueJoinJson);
+	if (!FJsonSerializer::Deserialize(JsonReader, QueueJoinObject) || !QueueJoinObject.IsValid())
+	{
+		OutErrorMessage = TEXT("Hugging Face queue join returned invalid JSON.");
+		return false;
+	}
+
+	if (!QueueJoinObject->TryGetStringField(TEXT("event_id"), OutEventId) || OutEventId.IsEmpty())
+	{
+		OutErrorMessage = TEXT("Hugging Face queue join response did not include an event_id.");
 		return false;
 	}
 
