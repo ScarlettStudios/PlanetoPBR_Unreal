@@ -130,14 +130,14 @@ FReply FPlaneToPBREditorModule::GeneratePBRPlane()
 			PinnedStatusTextBlock->SetText(LOCTEXT("ImportingTexturesStatus", "Importing PlaneToPBR textures..."));
 
 			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
-				[this, WeakStatusTextBlock, TexturePaths = Result.TexturePaths](float DeltaTime)
+				[this, WeakStatusTextBlock, TexturePaths = Result.TexturePaths, SourceImagePath = WorkflowState.ImagePath.TrimStartAndEnd()](float DeltaTime)
 				{
 					if (const TSharedPtr<STextBlock> DeferredStatusTextBlock = WeakStatusTextBlock.Pin())
 					{
 						FString ContentPath;
 						TMap<FString, FString> TextureAssetPaths;
 						FString ImportErrorMessage;
-						if (!ImportDownloadedTextures(TexturePaths, ContentPath, TextureAssetPaths, ImportErrorMessage))
+						if (!ImportDownloadedTextures(TexturePaths, SourceImagePath, ContentPath, TextureAssetPaths, ImportErrorMessage))
 						{
 							DeferredStatusTextBlock->SetText(FText::FromString(ImportErrorMessage));
 							return false;
@@ -174,6 +174,7 @@ void FPlaneToPBREditorModule::OnImagePathChanged(const FText& NewText)
 
 bool FPlaneToPBREditorModule::ImportDownloadedTextures(
 	const TMap<FString, FString>& TexturePaths,
+	const FString& SourceImagePath,
 	FString& OutContentPath,
 	TMap<FString, FString>& OutTextureAssetPaths,
 	FString& OutErrorMessage) const
@@ -196,6 +197,12 @@ bool FPlaneToPBREditorModule::ImportDownloadedTextures(
 		}
 	}
 
+	if (!FPaths::FileExists(SourceImagePath))
+	{
+		OutErrorMessage = FString::Printf(TEXT("Selected source image does not exist: %s"), *SourceImagePath);
+		return false;
+	}
+
 	const FString RunFolderName = TEXT("Run_") + FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
 	OutContentPath = TEXT("/Game/PlaneToPBR/Generated/") + RunFolderName;
 
@@ -214,6 +221,15 @@ bool FPlaneToPBREditorModule::ImportDownloadedTextures(
 		ImportTasks.Add(ImportTask);
 	}
 
+	UAssetImportTask* BaseColorImportTask = NewObject<UAssetImportTask>();
+	BaseColorImportTask->Filename = SourceImagePath;
+	BaseColorImportTask->DestinationPath = OutContentPath;
+	BaseColorImportTask->DestinationName = TEXT("T_BaseColor");
+	BaseColorImportTask->bAutomated = true;
+	BaseColorImportTask->bReplaceExisting = true;
+	BaseColorImportTask->bSave = true;
+	ImportTasks.Add(BaseColorImportTask);
+
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
 	AssetToolsModule.Get().ImportAssetTasks(ImportTasks);
 
@@ -226,7 +242,9 @@ bool FPlaneToPBREditorModule::ImportDownloadedTextures(
 		}
 
 		const FString AssetName = FPaths::GetBaseFilename(ImportTask->ImportedObjectPaths[0]);
-		const FString TextureKey = AssetName.RightChop(2).ToLower();
+		const FString TextureKey = AssetName == TEXT("T_BaseColor")
+			? TEXT("basecolor")
+			: AssetName.RightChop(2).ToLower();
 		OutTextureAssetPaths.Add(TextureKey, ImportTask->ImportedObjectPaths[0]);
 	}
 
@@ -242,18 +260,20 @@ bool FPlaneToPBREditorModule::CreateGeneratedMaterial(
 	const FString* NormalAssetPath = TextureAssetPaths.Find(TEXT("normal"));
 	const FString* RoughnessAssetPath = TextureAssetPaths.Find(TEXT("roughness"));
 	const FString* MaskAssetPath = TextureAssetPaths.Find(TEXT("mask"));
+	const FString* BaseColorAssetPath = TextureAssetPaths.Find(TEXT("basecolor"));
 
-	if (!NormalAssetPath || !RoughnessAssetPath || !MaskAssetPath)
+	if (!NormalAssetPath || !RoughnessAssetPath || !MaskAssetPath || !BaseColorAssetPath)
 	{
 		OutErrorMessage = TEXT("Missing imported texture assets required for material creation.");
 		return false;
 	}
 
+	UTexture* BaseColorTexture = LoadObject<UTexture>(nullptr, **BaseColorAssetPath);
 	UTexture* NormalTexture = LoadObject<UTexture>(nullptr, **NormalAssetPath);
 	UTexture* RoughnessTexture = LoadObject<UTexture>(nullptr, **RoughnessAssetPath);
 	UTexture* MaskTexture = LoadObject<UTexture>(nullptr, **MaskAssetPath);
 
-	if (!NormalTexture || !RoughnessTexture || !MaskTexture)
+	if (!BaseColorTexture || !NormalTexture || !RoughnessTexture || !MaskTexture)
 	{
 		OutErrorMessage = TEXT("Failed to load one or more imported texture assets for material creation.");
 		return false;
@@ -269,9 +289,9 @@ bool FPlaneToPBREditorModule::CreateGeneratedMaterial(
 		return false;
 	}
 
-	UMaterialExpressionVectorParameter* BaseColorExpression = NewObject<UMaterialExpressionVectorParameter>(Material);
-	BaseColorExpression->ParameterName = TEXT("BaseColor");
-	BaseColorExpression->DefaultValue = FLinearColor(0.5f, 0.5f, 0.5f, 1.0f);
+	UMaterialExpressionTextureSample* BaseColorExpression = NewObject<UMaterialExpressionTextureSample>(Material);
+	BaseColorExpression->Texture = BaseColorTexture;
+	BaseColorExpression->SamplerType = SAMPLERTYPE_Color;
 	BaseColorExpression->MaterialExpressionEditorX = -600;
 	BaseColorExpression->MaterialExpressionEditorY = -240;
 	Material->GetExpressionCollection().AddExpression(BaseColorExpression);
