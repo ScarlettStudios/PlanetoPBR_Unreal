@@ -23,7 +23,8 @@ public class PlaneToPBREditor : ModuleRules
 			"EditorFramework",
 			"DesktopPlatform",
 			"AssetTools",
-			"MaterialEditor"
+			"MaterialEditor",
+			"ImageWrapper"
 		});
 	}
 }
