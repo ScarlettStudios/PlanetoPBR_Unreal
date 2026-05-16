@@ -22,7 +22,8 @@ public class PlaneToPBREditor : ModuleRules
 			"SlateCore",
 			"EditorFramework",
 			"DesktopPlatform",
-			"AssetTools"
+			"AssetTools",
+			"MaterialEditor"
 		});
 	}
 }
