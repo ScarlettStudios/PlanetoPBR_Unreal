@@ -5,6 +5,7 @@
 class SEditableTextBox;
 class SDockTab;
 class STextBlock;
+class UMaterialInterface;
 
 class FPlaneToPBREditorModule : public IModuleInterface
 {
@@ -35,6 +36,20 @@ private:
 		const FString& ContentPath,
 		const TMap<FString, FString>& TextureAssetPaths,
 		FString& OutMaterialPath,
+		UMaterialInterface*& OutMaterial,
+		FString& OutErrorMessage) const;
+	bool CreateGeneratedDisplacedPlaneActor(
+		const FString& ContentPath,
+		UMaterialInterface* Material,
+		const TMap<FString, FString>& TexturePaths,
+		FString& OutActorLabel,
+		FString& OutErrorMessage) const;
+	bool CreateDisplacedPlaneObj(
+		const FString& DepthTexturePath,
+		const FString& ObjPath,
+		int32& OutDepthWidth,
+		int32& OutDepthHeight,
+		int32& OutSubdivisionsY,
 		FString& OutErrorMessage) const;
 	TSharedRef<SDockTab> SpawnPlaneToPBRTab(const class FSpawnTabArgs& SpawnTabArgs);
 
