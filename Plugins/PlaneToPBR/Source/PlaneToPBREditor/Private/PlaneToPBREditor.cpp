@@ -3,6 +3,7 @@
 #include "DesktopPlatformModule.h"
 #include "Framework/Application/SlateApplication.h"
 #include "IDesktopPlatform.h"
+#include "PlaneToPBRHuggingFaceClient.h"
 #include "ToolMenus.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
@@ -88,27 +89,18 @@ FReply FPlaneToPBREditorModule::BrowseForImage()
 
 FReply FPlaneToPBREditorModule::GeneratePBRPlane()
 {
-	const FString TrimmedPrompt = WorkflowState.HFPrompt.TrimStartAndEnd();
-	const FString TrimmedImagePath = WorkflowState.ImagePath.TrimStartAndEnd();
+	FPlaneToPBRHuggingFaceRequest Request;
+	Request.ImagePath = WorkflowState.ImagePath.TrimStartAndEnd();
+	Request.HFPrompt = WorkflowState.HFPrompt.TrimStartAndEnd();
 
-	if (TrimmedImagePath.IsEmpty())
+	FPlaneToPBRHuggingFaceClient Client;
+	Client.GeneratePBRTexturesAsync(Request, [WeakStatusTextBlock = TWeakPtr<STextBlock>(StatusTextBlock)](const FPlaneToPBRHuggingFaceResult& Result)
 	{
-		if (StatusTextBlock.IsValid())
+		if (const TSharedPtr<STextBlock> PinnedStatusTextBlock = WeakStatusTextBlock.Pin())
 		{
-			StatusTextBlock->SetText(LOCTEXT("MissingImagePathStatus", "Image path is required."));
+			PinnedStatusTextBlock->SetText(FText::FromString(Result.Message));
 		}
-		return FReply::Handled();
-	}
-
-	if (StatusTextBlock.IsValid())
-	{
-		StatusTextBlock->SetText(FText::Format(
-			LOCTEXT("ReadyToGenerateStatus", "Ready to generate PBR plane from image: {0}{1}"),
-			FText::FromString(TrimmedImagePath),
-			TrimmedPrompt.IsEmpty()
-				? FText::GetEmpty()
-				: FText::Format(LOCTEXT("ReadyPromptSuffix", " with prompt: {0}"), FText::FromString(TrimmedPrompt))));
-	}
+	});
 
 	return FReply::Handled();
 }
