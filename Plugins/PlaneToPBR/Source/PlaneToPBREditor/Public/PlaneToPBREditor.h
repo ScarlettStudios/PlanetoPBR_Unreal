@@ -27,6 +27,7 @@ private:
 	void OnImagePathChanged(const FText& NewText);
 	bool ImportDownloadedTextures(
 		const TMap<FString, FString>& TexturePaths,
+		const FString& SourceImagePath,
 		FString& OutContentPath,
 		TMap<FString, FString>& OutTextureAssetPaths,
 		FString& OutErrorMessage) const;
