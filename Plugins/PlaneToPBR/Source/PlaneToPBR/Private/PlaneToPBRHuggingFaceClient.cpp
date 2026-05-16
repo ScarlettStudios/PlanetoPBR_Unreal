@@ -16,18 +16,23 @@ namespace PlaneToPBRHuggingFace
 	const FString SpaceBaseUrl = TEXT("https://ascarlettvfx-testpbr2026.hf.space");
 	const FString PredictApiName = TEXT("predict");
 
-	void CompleteRequest(FPlaneToPBRHuggingFaceCallback CompletionCallback, bool bSucceeded, const FString& Message)
+	void CompleteRequest(
+		FPlaneToPBRHuggingFaceCallback CompletionCallback,
+		bool bSucceeded,
+		const FString& Message,
+		const FString& RawOutputJson = FString())
 	{
 		if (!CompletionCallback)
 		{
 			return;
 		}
 
-		AsyncTask(ENamedThreads::GameThread, [CompletionCallback = MoveTemp(CompletionCallback), bSucceeded, Message]()
+		AsyncTask(ENamedThreads::GameThread, [CompletionCallback = MoveTemp(CompletionCallback), bSucceeded, Message, RawOutputJson]()
 		{
 			FPlaneToPBRHuggingFaceResult Result;
 			Result.bSucceeded = bSucceeded;
 			Result.Message = Message;
+			Result.RawOutputJson = RawOutputJson;
 			CompletionCallback(Result);
 		});
 	}
@@ -167,10 +172,49 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 								return;
 							}
 
-							PlaneToPBRHuggingFace::CompleteRequest(
-								MoveTemp(CompletionCallback),
-								true,
-								FString::Printf(TEXT("Joined Hugging Face queue. Event ID: %s Session: %s"), *EventId, *SessionHash));
+							const TSharedRef<IHttpRequest> QueuePollRequest = FHttpModule::Get().CreateRequest();
+							QueuePollRequest->SetURL(PlaneToPBRHuggingFace::SpaceBaseUrl / TEXT("gradio_api/queue/data?session_hash=") + SessionHash);
+							QueuePollRequest->SetVerb(TEXT("GET"));
+							QueuePollRequest->OnProcessRequestComplete().BindLambda(
+								[CompletionCallback = MoveTemp(CompletionCallback)](
+									FHttpRequestPtr QueuePollRequestPtr,
+									FHttpResponsePtr QueuePollResponse,
+									bool bQueuePollConnectedSuccessfully) mutable
+								{
+									if (!bQueuePollConnectedSuccessfully || !QueuePollResponse.IsValid())
+									{
+										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to poll Hugging Face generation queue."));
+										return;
+									}
+
+									if (QueuePollResponse->GetResponseCode() < 200 || QueuePollResponse->GetResponseCode() >= 300)
+									{
+										PlaneToPBRHuggingFace::CompleteRequest(
+											MoveTemp(CompletionCallback),
+											false,
+											FString::Printf(TEXT("Hugging Face queue polling failed with HTTP %d."), QueuePollResponse->GetResponseCode()));
+										return;
+									}
+
+									FString RawOutputJson;
+									FString QueuePollErrorMessage;
+									if (!TryParseQueuePollResponse(QueuePollResponse->GetContentAsString(), RawOutputJson, QueuePollErrorMessage))
+									{
+										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, QueuePollErrorMessage);
+										return;
+									}
+
+									PlaneToPBRHuggingFace::CompleteRequest(
+										MoveTemp(CompletionCallback),
+										true,
+										TEXT("Hugging Face generation completed with 4 output files."),
+										RawOutputJson);
+								});
+
+							if (!QueuePollRequest->ProcessRequest())
+							{
+								PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face queue polling request."));
+							}
 						});
 
 					if (!QueueJoinRequest->ProcessRequest())
@@ -375,4 +419,79 @@ bool FPlaneToPBRHuggingFaceClient::TryParseQueueEventId(const FString& QueueJoin
 	}
 
 	return true;
+}
+
+bool FPlaneToPBRHuggingFaceClient::TryParseQueuePollResponse(const FString& QueuePollText, FString& OutRawOutputJson, FString& OutErrorMessage)
+{
+	TArray<FString> Lines;
+	QueuePollText.ParseIntoArrayLines(Lines);
+
+	for (FString Line : Lines)
+	{
+		Line.TrimStartAndEndInline();
+		if (!Line.StartsWith(TEXT("data:")))
+		{
+			continue;
+		}
+
+		FString EventJson = Line.RightChop(5).TrimStartAndEnd();
+		if (EventJson.IsEmpty())
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> EventObject;
+		const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(EventJson);
+		if (!FJsonSerializer::Deserialize(JsonReader, EventObject) || !EventObject.IsValid())
+		{
+			OutErrorMessage = TEXT("Hugging Face queue polling returned invalid event JSON.");
+			return false;
+		}
+
+		FString MessageType;
+		if (!EventObject->TryGetStringField(TEXT("msg"), MessageType))
+		{
+			continue;
+		}
+
+		if (MessageType == TEXT("process_failed"))
+		{
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face generation failed: %s"), *EventJson);
+			return false;
+		}
+
+		if (MessageType != TEXT("process_completed"))
+		{
+			continue;
+		}
+
+		const TSharedPtr<FJsonObject>* OutputObject = nullptr;
+		if (!EventObject->TryGetObjectField(TEXT("output"), OutputObject) || !OutputObject || !OutputObject->IsValid())
+		{
+			OutErrorMessage = TEXT("Hugging Face completion event is missing output metadata.");
+			return false;
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* OutputData = nullptr;
+		if (!(*OutputObject)->TryGetArrayField(TEXT("data"), OutputData) || !OutputData)
+		{
+			OutErrorMessage = TEXT("Hugging Face completion event is missing output data.");
+			return false;
+		}
+
+		if (OutputData->Num() < 4)
+		{
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face completion returned %d output files; expected 4."), OutputData->Num());
+			return false;
+		}
+
+		FString SerializedOutputData;
+		const TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&SerializedOutputData);
+		FJsonSerializer::Serialize(*OutputData, JsonWriter);
+		OutRawOutputJson = SerializedOutputData;
+		return true;
+	}
+
+	OutErrorMessage = TEXT("Hugging Face queue polling finished without a completion event.");
+	return false;
 }

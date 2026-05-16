@@ -12,6 +12,7 @@ struct FPlaneToPBRHuggingFaceResult
 {
 	bool bSucceeded = false;
 	FString Message;
+	FString RawOutputJson;
 };
 
 using FPlaneToPBRHuggingFaceCallback = TFunction<void(const FPlaneToPBRHuggingFaceResult& Result)>;
@@ -43,4 +44,5 @@ private:
 		int32 PredictFunctionIndex,
 		const FString& SessionHash);
 	static bool TryParseQueueEventId(const FString& QueueJoinJson, FString& OutEventId, FString& OutErrorMessage);
+	static bool TryParseQueuePollResponse(const FString& QueuePollText, FString& OutRawOutputJson, FString& OutErrorMessage);
 };
