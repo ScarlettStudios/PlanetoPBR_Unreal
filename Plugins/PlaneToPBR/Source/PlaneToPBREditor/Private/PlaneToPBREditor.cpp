@@ -4,12 +4,30 @@
 #include "AssetToolsModule.h"
 #include "Containers/Ticker.h"
 #include "DesktopPlatformModule.h"
+#include "Factories/MaterialFactoryNew.h"
 #include "Framework/Application/SlateApplication.h"
 #include "IDesktopPlatform.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialExpressionConstant3Vector.h"
+#include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionOneMinus.h"
+#include "Materials/MaterialExpressionTextureSample.h"
+#include "Materials/MaterialExpressionTextureSampleParameter2D.h"
+#include "Materials/MaterialExpressionVectorParameter.h"
+#include "Materials/MaterialExpressionComponentMask.h"
+#include "Materials/MaterialExpressionClamp.h"
+#include "Materials/MaterialExpressionScalarParameter.h"
+#include "Materials/MaterialExpressionMaterialFunctionCall.h"
+#include "Materials/MaterialExpressionTextureCoordinate.h"
+#include "Materials/MaterialExpressionLinearInterpolate.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Misc/DateTime.h"
 #include "Misc/Paths.h"
+#include "ObjectTools.h"
 #include "PlaneToPBRHuggingFaceClient.h"
 #include "ToolMenus.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Docking/SDockTab.h"
@@ -117,14 +135,23 @@ FReply FPlaneToPBREditorModule::GeneratePBRPlane()
 					if (const TSharedPtr<STextBlock> DeferredStatusTextBlock = WeakStatusTextBlock.Pin())
 					{
 						FString ContentPath;
+						TMap<FString, FString> TextureAssetPaths;
 						FString ImportErrorMessage;
-						if (!ImportDownloadedTextures(TexturePaths, ContentPath, ImportErrorMessage))
+						if (!ImportDownloadedTextures(TexturePaths, ContentPath, TextureAssetPaths, ImportErrorMessage))
 						{
 							DeferredStatusTextBlock->SetText(FText::FromString(ImportErrorMessage));
 							return false;
 						}
 
-						DeferredStatusTextBlock->SetText(FText::FromString(FString::Printf(TEXT("Imported PlaneToPBR textures to: %s"), *ContentPath)));
+						FString MaterialPath;
+						FString MaterialErrorMessage;
+						if (!CreateGeneratedMaterial(ContentPath, TextureAssetPaths, MaterialPath, MaterialErrorMessage))
+						{
+							DeferredStatusTextBlock->SetText(FText::FromString(MaterialErrorMessage));
+							return false;
+						}
+
+						DeferredStatusTextBlock->SetText(FText::FromString(FString::Printf(TEXT("Created PlaneToPBR material: %s"), *MaterialPath)));
 					}
 
 					return false;
@@ -148,6 +175,7 @@ void FPlaneToPBREditorModule::OnImagePathChanged(const FText& NewText)
 bool FPlaneToPBREditorModule::ImportDownloadedTextures(
 	const TMap<FString, FString>& TexturePaths,
 	FString& OutContentPath,
+	TMap<FString, FString>& OutTextureAssetPaths,
 	FString& OutErrorMessage) const
 {
 	static const TArray<FString> RequiredTextureKeys = { TEXT("depth"), TEXT("normal"), TEXT("roughness"), TEXT("mask") };
@@ -196,8 +224,105 @@ bool FPlaneToPBREditorModule::ImportDownloadedTextures(
 			OutErrorMessage = FString::Printf(TEXT("Failed to import texture: %s"), ImportTask ? *ImportTask->Filename : TEXT("unknown"));
 			return false;
 		}
+
+		const FString AssetName = FPaths::GetBaseFilename(ImportTask->ImportedObjectPaths[0]);
+		const FString TextureKey = AssetName.RightChop(2).ToLower();
+		OutTextureAssetPaths.Add(TextureKey, ImportTask->ImportedObjectPaths[0]);
 	}
 
+	return true;
+}
+
+bool FPlaneToPBREditorModule::CreateGeneratedMaterial(
+	const FString& ContentPath,
+	const TMap<FString, FString>& TextureAssetPaths,
+	FString& OutMaterialPath,
+	FString& OutErrorMessage) const
+{
+	const FString* NormalAssetPath = TextureAssetPaths.Find(TEXT("normal"));
+	const FString* RoughnessAssetPath = TextureAssetPaths.Find(TEXT("roughness"));
+	const FString* MaskAssetPath = TextureAssetPaths.Find(TEXT("mask"));
+
+	if (!NormalAssetPath || !RoughnessAssetPath || !MaskAssetPath)
+	{
+		OutErrorMessage = TEXT("Missing imported texture assets required for material creation.");
+		return false;
+	}
+
+	UTexture* NormalTexture = LoadObject<UTexture>(nullptr, **NormalAssetPath);
+	UTexture* RoughnessTexture = LoadObject<UTexture>(nullptr, **RoughnessAssetPath);
+	UTexture* MaskTexture = LoadObject<UTexture>(nullptr, **MaskAssetPath);
+
+	if (!NormalTexture || !RoughnessTexture || !MaskTexture)
+	{
+		OutErrorMessage = TEXT("Failed to load one or more imported texture assets for material creation.");
+		return false;
+	}
+
+	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
+	UMaterialFactoryNew* MaterialFactory = NewObject<UMaterialFactoryNew>();
+	UObject* CreatedAsset = AssetToolsModule.Get().CreateAsset(TEXT("M_PlaneToPBR"), ContentPath, UMaterial::StaticClass(), MaterialFactory);
+	UMaterial* Material = Cast<UMaterial>(CreatedAsset);
+	if (!Material)
+	{
+		OutErrorMessage = FString::Printf(TEXT("Failed to create material in: %s"), *ContentPath);
+		return false;
+	}
+
+	UMaterialExpressionVectorParameter* BaseColorExpression = NewObject<UMaterialExpressionVectorParameter>(Material);
+	BaseColorExpression->ParameterName = TEXT("BaseColor");
+	BaseColorExpression->DefaultValue = FLinearColor(0.5f, 0.5f, 0.5f, 1.0f);
+	BaseColorExpression->MaterialExpressionEditorX = -600;
+	BaseColorExpression->MaterialExpressionEditorY = -240;
+	Material->GetExpressionCollection().AddExpression(BaseColorExpression);
+	Material->GetEditorOnlyData()->BaseColor.Expression = BaseColorExpression;
+
+	UMaterialExpressionTextureSample* NormalExpression = NewObject<UMaterialExpressionTextureSample>(Material);
+	NormalExpression->Texture = NormalTexture;
+	NormalExpression->SamplerType = SAMPLERTYPE_Normal;
+	NormalExpression->MaterialExpressionEditorX = -600;
+	NormalExpression->MaterialExpressionEditorY = 120;
+	Material->GetExpressionCollection().AddExpression(NormalExpression);
+	Material->GetEditorOnlyData()->Normal.Expression = NormalExpression;
+
+	UMaterialExpressionTextureSample* RoughnessExpression = NewObject<UMaterialExpressionTextureSample>(Material);
+	RoughnessExpression->Texture = RoughnessTexture;
+	RoughnessExpression->SamplerType = SAMPLERTYPE_LinearColor;
+	RoughnessExpression->MaterialExpressionEditorX = -600;
+	RoughnessExpression->MaterialExpressionEditorY = -20;
+	Material->GetExpressionCollection().AddExpression(RoughnessExpression);
+
+	UMaterialExpressionTextureSample* MaskExpression = NewObject<UMaterialExpressionTextureSample>(Material);
+	MaskExpression->Texture = MaskTexture;
+	MaskExpression->SamplerType = SAMPLERTYPE_LinearColor;
+	MaskExpression->MaterialExpressionEditorX = -600;
+	MaskExpression->MaterialExpressionEditorY = 300;
+	Material->GetExpressionCollection().AddExpression(MaskExpression);
+
+	UMaterialExpressionLinearInterpolate* RoughnessMaskBlend = NewObject<UMaterialExpressionLinearInterpolate>(Material);
+	RoughnessMaskBlend->ConstB = 0.082f;
+	RoughnessMaskBlend->MaterialExpressionEditorX = -250;
+	RoughnessMaskBlend->MaterialExpressionEditorY = 120;
+	RoughnessMaskBlend->A.Connect(0, RoughnessExpression);
+	RoughnessMaskBlend->Alpha.Connect(0, MaskExpression);
+	Material->GetExpressionCollection().AddExpression(RoughnessMaskBlend);
+	Material->GetEditorOnlyData()->Roughness.Expression = RoughnessMaskBlend;
+
+	Material->PreEditChange(nullptr);
+	Material->PostEditChange();
+	Material->MarkPackageDirty();
+
+	UPackage* MaterialPackage = Material->GetOutermost();
+	const FString PackageFileName = FPackageName::LongPackageNameToFilename(MaterialPackage->GetName(), FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+	if (!UPackage::SavePackage(MaterialPackage, Material, *PackageFileName, SaveArgs))
+	{
+		OutErrorMessage = FString::Printf(TEXT("Failed to save material package: %s"), *PackageFileName);
+		return false;
+	}
+
+	OutMaterialPath = ContentPath / TEXT("M_PlaneToPBR");
 	return true;
 }
 

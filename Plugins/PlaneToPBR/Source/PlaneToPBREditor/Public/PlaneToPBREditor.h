@@ -28,6 +28,12 @@ private:
 	bool ImportDownloadedTextures(
 		const TMap<FString, FString>& TexturePaths,
 		FString& OutContentPath,
+		TMap<FString, FString>& OutTextureAssetPaths,
+		FString& OutErrorMessage) const;
+	bool CreateGeneratedMaterial(
+		const FString& ContentPath,
+		const TMap<FString, FString>& TextureAssetPaths,
+		FString& OutMaterialPath,
 		FString& OutErrorMessage) const;
 	TSharedRef<SDockTab> SpawnPlaneToPBRTab(const class FSpawnTabArgs& SpawnTabArgs);
 
