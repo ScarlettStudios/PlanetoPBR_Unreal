@@ -26,4 +26,10 @@ public:
 private:
 	static bool ValidateRequest(const FPlaneToPBRHuggingFaceRequest& Request, FString& OutErrorMessage);
 	static bool ResolvePredictFunctionIndex(const FString& ConfigJson, int32& OutFunctionIndex, FString& OutErrorMessage);
+	static bool TryReadImageFile(const FString& ImagePath, TArray<uint8>& OutImageBytes, FString& OutErrorMessage);
+	static TArray<uint8> BuildMultipartUploadBody(
+		const FString& Boundary,
+		const FString& FileName,
+		const TArray<uint8>& ImageBytes);
+	static bool TryParseUploadPath(const FString& UploadJson, FString& OutUploadedPath, FString& OutErrorMessage);
 };
