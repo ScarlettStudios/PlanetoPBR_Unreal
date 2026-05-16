@@ -25,6 +25,10 @@ private:
 	FReply GeneratePBRPlane();
 	void OnHFPromptChanged(const FText& NewText);
 	void OnImagePathChanged(const FText& NewText);
+	bool ImportDownloadedTextures(
+		const TMap<FString, FString>& TexturePaths,
+		FString& OutContentPath,
+		FString& OutErrorMessage) const;
 	TSharedRef<SDockTab> SpawnPlaneToPBRTab(const class FSpawnTabArgs& SpawnTabArgs);
 
 	FPlaneToPBRWorkflowState WorkflowState;

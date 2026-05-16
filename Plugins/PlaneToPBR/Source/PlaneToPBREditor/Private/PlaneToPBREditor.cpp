@@ -1,8 +1,13 @@
 #include "PlaneToPBREditor.h"
 
+#include "AssetImportTask.h"
+#include "AssetToolsModule.h"
+#include "Containers/Ticker.h"
 #include "DesktopPlatformModule.h"
 #include "Framework/Application/SlateApplication.h"
 #include "IDesktopPlatform.h"
+#include "Misc/DateTime.h"
+#include "Misc/Paths.h"
 #include "PlaneToPBRHuggingFaceClient.h"
 #include "ToolMenus.h"
 #include "Widgets/Input/SButton.h"
@@ -94,11 +99,36 @@ FReply FPlaneToPBREditorModule::GeneratePBRPlane()
 	Request.HFPrompt = WorkflowState.HFPrompt.TrimStartAndEnd();
 
 	FPlaneToPBRHuggingFaceClient Client;
-	Client.GeneratePBRTexturesAsync(Request, [WeakStatusTextBlock = TWeakPtr<STextBlock>(StatusTextBlock)](const FPlaneToPBRHuggingFaceResult& Result)
+	Client.GeneratePBRTexturesAsync(Request, [this, WeakStatusTextBlock = TWeakPtr<STextBlock>(StatusTextBlock)](const FPlaneToPBRHuggingFaceResult& Result)
 	{
 		if (const TSharedPtr<STextBlock> PinnedStatusTextBlock = WeakStatusTextBlock.Pin())
 		{
-			PinnedStatusTextBlock->SetText(FText::FromString(Result.Message));
+			if (!Result.bSucceeded)
+			{
+				PinnedStatusTextBlock->SetText(FText::FromString(Result.Message));
+				return;
+			}
+
+			PinnedStatusTextBlock->SetText(LOCTEXT("ImportingTexturesStatus", "Importing PlaneToPBR textures..."));
+
+			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+				[this, WeakStatusTextBlock, TexturePaths = Result.TexturePaths](float DeltaTime)
+				{
+					if (const TSharedPtr<STextBlock> DeferredStatusTextBlock = WeakStatusTextBlock.Pin())
+					{
+						FString ContentPath;
+						FString ImportErrorMessage;
+						if (!ImportDownloadedTextures(TexturePaths, ContentPath, ImportErrorMessage))
+						{
+							DeferredStatusTextBlock->SetText(FText::FromString(ImportErrorMessage));
+							return false;
+						}
+
+						DeferredStatusTextBlock->SetText(FText::FromString(FString::Printf(TEXT("Imported PlaneToPBR textures to: %s"), *ContentPath)));
+					}
+
+					return false;
+				}));
 		}
 	});
 
@@ -113,6 +143,62 @@ void FPlaneToPBREditorModule::OnHFPromptChanged(const FText& NewText)
 void FPlaneToPBREditorModule::OnImagePathChanged(const FText& NewText)
 {
 	WorkflowState.ImagePath = NewText.ToString();
+}
+
+bool FPlaneToPBREditorModule::ImportDownloadedTextures(
+	const TMap<FString, FString>& TexturePaths,
+	FString& OutContentPath,
+	FString& OutErrorMessage) const
+{
+	static const TArray<FString> RequiredTextureKeys = { TEXT("depth"), TEXT("normal"), TEXT("roughness"), TEXT("mask") };
+
+	for (const FString& TextureKey : RequiredTextureKeys)
+	{
+		const FString* TexturePath = TexturePaths.Find(TextureKey);
+		if (!TexturePath || TexturePath->IsEmpty())
+		{
+			OutErrorMessage = FString::Printf(TEXT("Missing downloaded %s texture path."), *TextureKey);
+			return false;
+		}
+
+		if (!FPaths::FileExists(*TexturePath))
+		{
+			OutErrorMessage = FString::Printf(TEXT("Downloaded %s texture does not exist: %s"), *TextureKey, **TexturePath);
+			return false;
+		}
+	}
+
+	const FString RunFolderName = TEXT("Run_") + FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+	OutContentPath = TEXT("/Game/PlaneToPBR/Generated/") + RunFolderName;
+
+	TArray<UAssetImportTask*> ImportTasks;
+	for (const FString& TextureKey : RequiredTextureKeys)
+	{
+		const FString& TexturePath = *TexturePaths.Find(TextureKey);
+
+		UAssetImportTask* ImportTask = NewObject<UAssetImportTask>();
+		ImportTask->Filename = TexturePath;
+		ImportTask->DestinationPath = OutContentPath;
+		ImportTask->DestinationName = TEXT("T_") + TextureKey.Left(1).ToUpper() + TextureKey.RightChop(1);
+		ImportTask->bAutomated = true;
+		ImportTask->bReplaceExisting = true;
+		ImportTask->bSave = true;
+		ImportTasks.Add(ImportTask);
+	}
+
+	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
+	AssetToolsModule.Get().ImportAssetTasks(ImportTasks);
+
+	for (UAssetImportTask* ImportTask : ImportTasks)
+	{
+		if (!ImportTask || ImportTask->ImportedObjectPaths.Num() == 0)
+		{
+			OutErrorMessage = FString::Printf(TEXT("Failed to import texture: %s"), ImportTask ? *ImportTask->Filename : TEXT("unknown"));
+			return false;
+		}
+	}
+
+	return true;
 }
 
 TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTabArgs& SpawnTabArgs)
