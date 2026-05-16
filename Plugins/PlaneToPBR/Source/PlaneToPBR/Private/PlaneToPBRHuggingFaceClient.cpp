@@ -8,6 +8,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
+#include "Misc/DateTime.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -20,19 +21,21 @@ namespace PlaneToPBRHuggingFace
 		FPlaneToPBRHuggingFaceCallback CompletionCallback,
 		bool bSucceeded,
 		const FString& Message,
-		const FString& RawOutputJson = FString())
+		const FString& RawOutputJson = FString(),
+		const TMap<FString, FString>& TexturePaths = TMap<FString, FString>())
 	{
 		if (!CompletionCallback)
 		{
 			return;
 		}
 
-		AsyncTask(ENamedThreads::GameThread, [CompletionCallback = MoveTemp(CompletionCallback), bSucceeded, Message, RawOutputJson]()
+		AsyncTask(ENamedThreads::GameThread, [CompletionCallback = MoveTemp(CompletionCallback), bSucceeded, Message, RawOutputJson, TexturePaths]()
 		{
 			FPlaneToPBRHuggingFaceResult Result;
 			Result.bSucceeded = bSucceeded;
 			Result.Message = Message;
 			Result.RawOutputJson = RawOutputJson;
+			Result.TexturePaths = TexturePaths;
 			CompletionCallback(Result);
 		});
 	}
@@ -204,11 +207,23 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 										return;
 									}
 
-									PlaneToPBRHuggingFace::CompleteRequest(
-										MoveTemp(CompletionCallback),
-										true,
-										TEXT("Hugging Face generation completed with 4 output files."),
-										RawOutputJson);
+									TMap<FString, FString> TextureUrls;
+									FString OutputUrlErrorMessage;
+									if (!TryParseOutputUrls(RawOutputJson, TextureUrls, OutputUrlErrorMessage))
+									{
+										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, OutputUrlErrorMessage, RawOutputJson);
+										return;
+									}
+
+									FString OutputDirectory;
+									FString OutputDirectoryErrorMessage;
+									if (!TryCreateOutputDirectory(OutputDirectory, OutputDirectoryErrorMessage))
+									{
+										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, OutputDirectoryErrorMessage, RawOutputJson);
+										return;
+									}
+
+									DownloadOutputTextures(TextureUrls, OutputDirectory, MoveTemp(CompletionCallback));
 								});
 
 							if (!QueuePollRequest->ProcessRequest())
@@ -494,4 +509,143 @@ bool FPlaneToPBRHuggingFaceClient::TryParseQueuePollResponse(const FString& Queu
 
 	OutErrorMessage = TEXT("Hugging Face queue polling finished without a completion event.");
 	return false;
+}
+
+bool FPlaneToPBRHuggingFaceClient::TryParseOutputUrls(const FString& RawOutputJson, TMap<FString, FString>& OutTextureUrls, FString& OutErrorMessage)
+{
+	TArray<TSharedPtr<FJsonValue>> OutputData;
+	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(RawOutputJson);
+	if (!FJsonSerializer::Deserialize(JsonReader, OutputData))
+	{
+		OutErrorMessage = TEXT("Hugging Face output metadata returned invalid JSON.");
+		return false;
+	}
+
+	static const TArray<FString> TextureKeys = { TEXT("depth"), TEXT("normal"), TEXT("roughness"), TEXT("mask") };
+	if (OutputData.Num() < TextureKeys.Num())
+	{
+		OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata included %d files; expected 4."), OutputData.Num());
+		return false;
+	}
+
+	for (int32 TextureIndex = 0; TextureIndex < TextureKeys.Num(); ++TextureIndex)
+	{
+		const TSharedPtr<FJsonObject> TextureObject = OutputData[TextureIndex]->AsObject();
+		if (!TextureObject.IsValid())
+		{
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata for %s is invalid."), *TextureKeys[TextureIndex]);
+			return false;
+		}
+
+		FString TextureUrl;
+		if (!TextureObject->TryGetStringField(TEXT("url"), TextureUrl) || TextureUrl.IsEmpty())
+		{
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata for %s is missing a download URL."), *TextureKeys[TextureIndex]);
+			return false;
+		}
+
+		OutTextureUrls.Add(TextureKeys[TextureIndex], TextureUrl);
+	}
+
+	return true;
+}
+
+bool FPlaneToPBRHuggingFaceClient::TryCreateOutputDirectory(FString& OutOutputDirectory, FString& OutErrorMessage)
+{
+	const FString Timestamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+	OutOutputDirectory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("PlaneToPBR"), TEXT("Generated"), Timestamp);
+
+	if (!FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*OutOutputDirectory))
+	{
+		OutErrorMessage = FString::Printf(TEXT("Failed to create PlaneToPBR output directory: %s"), *OutOutputDirectory);
+		return false;
+	}
+
+	return true;
+}
+
+void FPlaneToPBRHuggingFaceClient::DownloadOutputTextures(
+	const TMap<FString, FString>& TextureUrls,
+	const FString& OutputDirectory,
+	FPlaneToPBRHuggingFaceCallback CompletionCallback)
+{
+	TArray<TPair<FString, FString>> PendingDownloads;
+	for (const TPair<FString, FString>& TextureUrl : TextureUrls)
+	{
+		PendingDownloads.Add(TextureUrl);
+	}
+
+	DownloadNextOutputTexture(MoveTemp(PendingDownloads), TMap<FString, FString>(), OutputDirectory, MoveTemp(CompletionCallback));
+}
+
+void FPlaneToPBRHuggingFaceClient::DownloadNextOutputTexture(
+	TArray<TPair<FString, FString>> PendingDownloads,
+	TMap<FString, FString> DownloadedTexturePaths,
+	const FString& OutputDirectory,
+	FPlaneToPBRHuggingFaceCallback CompletionCallback)
+{
+	if (PendingDownloads.Num() == 0)
+	{
+		PlaneToPBRHuggingFace::CompleteRequest(
+			MoveTemp(CompletionCallback),
+			true,
+			FString::Printf(TEXT("Downloaded Hugging Face textures to: %s"), *OutputDirectory),
+			FString(),
+			DownloadedTexturePaths);
+		return;
+	}
+
+	const TPair<FString, FString> CurrentDownload = PendingDownloads.Pop(EAllowShrinking::No);
+	const TSharedRef<IHttpRequest> DownloadRequest = FHttpModule::Get().CreateRequest();
+	DownloadRequest->SetURL(CurrentDownload.Value);
+	DownloadRequest->SetVerb(TEXT("GET"));
+	DownloadRequest->OnProcessRequestComplete().BindLambda(
+		[PendingDownloads = MoveTemp(PendingDownloads),
+		 DownloadedTexturePaths = MoveTemp(DownloadedTexturePaths),
+		 OutputDirectory,
+		 CurrentDownload,
+		 CompletionCallback = MoveTemp(CompletionCallback)](
+			FHttpRequestPtr DownloadRequestPtr,
+			FHttpResponsePtr DownloadResponse,
+			bool bDownloadConnectedSuccessfully) mutable
+		{
+			if (!bDownloadConnectedSuccessfully || !DownloadResponse.IsValid())
+			{
+				PlaneToPBRHuggingFace::CompleteRequest(
+					MoveTemp(CompletionCallback),
+					false,
+					FString::Printf(TEXT("Failed to download Hugging Face %s texture."), *CurrentDownload.Key));
+				return;
+			}
+
+			if (DownloadResponse->GetResponseCode() < 200 || DownloadResponse->GetResponseCode() >= 300)
+			{
+				PlaneToPBRHuggingFace::CompleteRequest(
+					MoveTemp(CompletionCallback),
+					false,
+					FString::Printf(TEXT("Hugging Face %s texture download failed with HTTP %d."), *CurrentDownload.Key, DownloadResponse->GetResponseCode()));
+				return;
+			}
+
+			const FString OutputPath = FPaths::Combine(OutputDirectory, CurrentDownload.Key + TEXT(".png"));
+			if (!FFileHelper::SaveArrayToFile(DownloadResponse->GetContent(), *OutputPath))
+			{
+				PlaneToPBRHuggingFace::CompleteRequest(
+					MoveTemp(CompletionCallback),
+					false,
+					FString::Printf(TEXT("Failed to save Hugging Face %s texture to: %s"), *CurrentDownload.Key, *OutputPath));
+				return;
+			}
+
+			DownloadedTexturePaths.Add(CurrentDownload.Key, OutputPath);
+			DownloadNextOutputTexture(MoveTemp(PendingDownloads), MoveTemp(DownloadedTexturePaths), OutputDirectory, MoveTemp(CompletionCallback));
+		});
+
+	if (!DownloadRequest->ProcessRequest())
+	{
+		PlaneToPBRHuggingFace::CompleteRequest(
+			MoveTemp(CompletionCallback),
+			false,
+			FString::Printf(TEXT("Failed to start Hugging Face %s texture download."), *CurrentDownload.Key));
+	}
 }

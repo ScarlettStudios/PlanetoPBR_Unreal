@@ -13,6 +13,7 @@ struct FPlaneToPBRHuggingFaceResult
 	bool bSucceeded = false;
 	FString Message;
 	FString RawOutputJson;
+	TMap<FString, FString> TexturePaths;
 };
 
 using FPlaneToPBRHuggingFaceCallback = TFunction<void(const FPlaneToPBRHuggingFaceResult& Result)>;
@@ -45,4 +46,15 @@ private:
 		const FString& SessionHash);
 	static bool TryParseQueueEventId(const FString& QueueJoinJson, FString& OutEventId, FString& OutErrorMessage);
 	static bool TryParseQueuePollResponse(const FString& QueuePollText, FString& OutRawOutputJson, FString& OutErrorMessage);
+	static bool TryParseOutputUrls(const FString& RawOutputJson, TMap<FString, FString>& OutTextureUrls, FString& OutErrorMessage);
+	static bool TryCreateOutputDirectory(FString& OutOutputDirectory, FString& OutErrorMessage);
+	static void DownloadOutputTextures(
+		const TMap<FString, FString>& TextureUrls,
+		const FString& OutputDirectory,
+		FPlaneToPBRHuggingFaceCallback CompletionCallback);
+	static void DownloadNextOutputTexture(
+		TArray<TPair<FString, FString>> PendingDownloads,
+		TMap<FString, FString> DownloadedTexturePaths,
+		const FString& OutputDirectory,
+		FPlaneToPBRHuggingFaceCallback CompletionCallback);
 };
