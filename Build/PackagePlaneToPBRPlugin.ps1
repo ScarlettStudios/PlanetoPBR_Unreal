@@ -81,6 +81,25 @@ if ($LASTEXITCODE -ne 0) {
 	throw "RunUAT BuildPlugin failed with exit code $LASTEXITCODE."
 }
 
+$packagedPluginFile = Join-Path $packageOutput "PlaneToPBR.uplugin"
+if (-not (Test-Path -LiteralPath $packagedPluginFile -PathType Leaf)) {
+	throw "Packaged plugin descriptor was not found: $packagedPluginFile"
+}
+
+$hostProjectMarkers = @(
+	"planetoPBR_unreal.uproject",
+	"Source/planetoPBR_unreal",
+	"Config/DefaultEngine.ini",
+	"Content/Maps"
+)
+
+foreach ($marker in $hostProjectMarkers) {
+	$markerPath = Join-Path $packageOutput $marker
+	if (Test-Path -LiteralPath $markerPath) {
+		throw "Package output includes host project content: $marker"
+	}
+}
+
 $zipParent = Split-Path -Parent $zipOutput
 if (-not (Test-Path -LiteralPath $zipParent)) {
 	New-Item -ItemType Directory -Path $zipParent | Out-Null
