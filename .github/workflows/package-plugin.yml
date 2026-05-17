@@ -1,6 +1,9 @@
 name: Package PlaneToPBR Plugin
 
 on:
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       target-platforms:
@@ -15,6 +18,9 @@ on:
 jobs:
   package-plugin:
     runs-on: [self-hosted, linux]
+    env:
+      UE_ENGINE_DIR: ${{ inputs.ue-engine-dir || vars.UE_ENGINE_DIR || '/opt/unreal-engine' }}
+      PLUGIN_TARGET_PLATFORMS: ${{ inputs.target-platforms || vars.PLUGIN_TARGET_PLATFORMS || 'Linux' }}
 
     steps:
       - name: Checkout
@@ -26,10 +32,10 @@ jobs:
       - name: Package plugin
         run: |
           docker run --rm \
-            -e UE_ENGINE_DIR="${{ inputs.ue-engine-dir }}" \
-            -e PLUGIN_TARGET_PLATFORMS="${{ inputs.target-platforms }}" \
+            -e UE_ENGINE_DIR="${UE_ENGINE_DIR}" \
+            -e PLUGIN_TARGET_PLATFORMS="${PLUGIN_TARGET_PLATFORMS}" \
             -v "${{ github.workspace }}:/workspace" \
-            -v "${{ inputs.ue-engine-dir }}:${{ inputs.ue-engine-dir }}:ro" \
+            -v "${UE_ENGINE_DIR}:${UE_ENGINE_DIR}:ro" \
             planetopbr-plugin-packager:${{ github.sha }}
 
       - name: Upload plugin artifact
