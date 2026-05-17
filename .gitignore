@@ -22,6 +22,7 @@ Content/Developers/
 *.VC.VC.opendb
 
 # Build/log/temp artifacts
+Artifacts/
 *.log
 *.tmp
 *.temp

@@ -1,0 +1,38 @@
+name: Package PlaneToPBR Plugin
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target-platforms:
+        description: Unreal target platforms passed to BuildPlugin.
+        required: true
+        default: Win64
+      ue-engine-dir:
+        description: Unreal Engine directory on the runner.
+        required: true
+        default: C:\Program Files\Epic Games\UE_5.7
+
+jobs:
+  package-plugin:
+    runs-on: [self-hosted, windows]
+    env:
+      UE_ENGINE_DIR: ${{ inputs.ue-engine-dir || vars.UE_ENGINE_DIR || 'C:\Program Files\Epic Games\UE_5.7' }}
+      PLUGIN_TARGET_PLATFORMS: ${{ inputs.target-platforms || vars.PLUGIN_TARGET_PLATFORMS || 'Win64' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package plugin
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: ./Scripts/PackagePlaneToPBRPlugin.ps1
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlaneToPBR-plugin
+          path: Artifacts/PlaneToPBR.zip
+          if-no-files-found: error
