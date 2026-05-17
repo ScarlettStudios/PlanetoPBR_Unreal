@@ -58,6 +58,7 @@ bool FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(
 
 	UMaterialExpressionTextureSample* BaseColorExpression = NewObject<UMaterialExpressionTextureSample>(Material);
 	BaseColorExpression->Texture = BaseColorTexture;
+	// LinearGrayscale sampler type matches non-sRGB texture settings for correct shader sampling
 	BaseColorExpression->SamplerType = FPlaneToPBRTextureRoles::GetInfo(EPlaneToPBRTextureRole::BaseColor).SamplerType;
 	BaseColorExpression->MaterialExpressionEditorX = -600;
 	BaseColorExpression->MaterialExpressionEditorY = -240;
@@ -99,6 +100,7 @@ bool FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(
 	Material->PostEditChange();
 	Material->MarkPackageDirty();
 
+	// Explicit save required to persist material graph and connections to disk
 	UPackage* MaterialPackage = Material->GetOutermost();
 	const FString PackageFileName = FPackageName::LongPackageNameToFilename(MaterialPackage->GetName(), FPackageName::GetAssetPackageExtension());
 	FSavePackageArgs SaveArgs;

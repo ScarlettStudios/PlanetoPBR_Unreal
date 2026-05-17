@@ -17,6 +17,7 @@ function Resolve-FullPath {
 	return [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Path))
 }
 
+# UE_ENGINE_DIR required to locate RunUAT.bat for plugin packaging automation
 if ([string]::IsNullOrWhiteSpace($env:UE_ENGINE_DIR)) {
 	throw "UE_ENGINE_DIR must point to an installed Unreal Engine directory."
 }
