@@ -1,0 +1,40 @@
+name: Package PlaneToPBR Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      target-platforms:
+        description: Unreal target platforms passed to BuildPlugin.
+        required: true
+        default: Linux
+      ue-engine-dir:
+        description: Unreal Engine directory inside the runner or container.
+        required: true
+        default: /opt/unreal-engine
+
+jobs:
+  package-plugin:
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build packaging image
+        run: docker build -t planetopbr-plugin-packager:${{ github.sha }} .
+
+      - name: Package plugin
+        run: |
+          docker run --rm \
+            -e UE_ENGINE_DIR="${{ inputs.ue-engine-dir }}" \
+            -e PLUGIN_TARGET_PLATFORMS="${{ inputs.target-platforms }}" \
+            -v "${{ github.workspace }}:/workspace" \
+            -v "${{ inputs.ue-engine-dir }}:${{ inputs.ue-engine-dir }}:ro" \
+            planetopbr-plugin-packager:${{ github.sha }}
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlaneToPBR-plugin
+          path: Artifacts/PlaneToPBR.zip
+          if-no-files-found: error
