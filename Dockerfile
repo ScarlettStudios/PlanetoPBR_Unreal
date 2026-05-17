@@ -1,10 +1,17 @@
-FROM mcr.microsoft.com/powershell:7.4-ubuntu-22.04
+# escape=`
+FROM mcr.microsoft.com/powershell:lts-windowsservercore-ltsc2022 AS base
 
-WORKDIR /workspace
+WORKDIR C:\\workspace
 
 ENV UE_ENGINE_DIR=""
-ENV PLUGIN_TARGET_PLATFORMS="Linux"
+ENV PLUGIN_TARGET_PLATFORMS="Win64"
 
-COPY . /workspace
+COPY . C:\\workspace
 
-CMD ["pwsh", "-NoLogo", "-NoProfile", "-File", "/workspace/Build/PackagePlaneToPBRPlugin.ps1"]
+FROM base AS test
+
+CMD ["pwsh", "-NoLogo", "-NoProfile", "-File", "C:\\workspace\\Build\\RunPlaneToPBRAutomationTests.ps1"]
+
+FROM base AS package
+
+CMD ["pwsh", "-NoLogo", "-NoProfile", "-Command", "& C:\\workspace\\Build\\RunPlaneToPBRAutomationTests.ps1; & C:\\workspace\\Build\\PackagePlaneToPBRPlugin.ps1"]
