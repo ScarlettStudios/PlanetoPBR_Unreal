@@ -51,6 +51,7 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(
 	const FString MeshOutputDir = FPlaneToPBRGeneratedAssetNames::GetDisplacedMeshOutputDir();
 	IFileManager::Get().MakeDirectory(*MeshOutputDir, true);
 
+	// Generate intermediate OBJ file to leverage Unreal's existing mesh import pipeline
 	const FString ObjPath = MeshOutputDir / FPlaneToPBRGeneratedAssetNames::GetDisplacedMeshObjName();
 	int32 DepthWidth = 0;
 	int32 DepthHeight = 0;
@@ -97,6 +98,7 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(
 	DisplacedPlaneMesh->PostEditChange();
 	DisplacedPlaneMesh->MarkPackageDirty();
 
+	// Explicit save required to persist mesh material assignment to disk
 	UPackage* MeshPackage = DisplacedPlaneMesh->GetOutermost();
 	const FString MeshPackageFileName = FPackageName::LongPackageNameToFilename(MeshPackage->GetName(), FPackageName::GetAssetPackageExtension());
 	FSavePackageArgs MeshSaveArgs;

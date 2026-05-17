@@ -94,12 +94,14 @@ bool FPlaneToPBRTextureImporter::ImportDownloadedTextures(
 
 		if (UTexture2D* ImportedTexture = LoadObject<UTexture2D>(nullptr, *ImportTask->ImportedObjectPaths[0]))
 		{
+			// Non-sRGB is required for roughness/mask/depth to preserve linear data values
 			ImportedTexture->SRGB = RoleInfo.bSRGB;
 			ImportedTexture->CompressionSettings = RoleInfo.CompressionSettings;
 
 			ImportedTexture->PostEditChange();
 			ImportedTexture->MarkPackageDirty();
 
+			// Explicit save required to persist texture settings (sRGB, compression) to disk
 			UPackage* TexturePackage = ImportedTexture->GetOutermost();
 			const FString TexturePackageFileName = FPackageName::LongPackageNameToFilename(TexturePackage->GetName(), FPackageName::GetAssetPackageExtension());
 			FSavePackageArgs TextureSaveArgs;

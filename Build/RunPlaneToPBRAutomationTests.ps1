@@ -27,6 +27,7 @@ function Test-IsWindowsHost {
 	return [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
 }
 
+# UE_ENGINE_DIR required to locate Build.bat and UnrealEditor-Cmd.exe for test execution
 if ([string]::IsNullOrWhiteSpace($env:UE_ENGINE_DIR)) {
 	throw "UE_ENGINE_DIR must point to an installed Unreal Engine directory."
 }
