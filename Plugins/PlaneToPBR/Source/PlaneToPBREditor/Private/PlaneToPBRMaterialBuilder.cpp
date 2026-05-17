@@ -9,8 +9,22 @@
 #include "Engine/Texture.h"
 #include "Misc/PackageName.h"
 #include "Modules/ModuleManager.h"
+#include "PlaneToPBRGeneratedAssetNames.h"
+#include "PlaneToPBRTextureRoles.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
+
+namespace PlaneToPBRMaterialBuilder
+{
+	static UTexture* LoadTextureForRole(
+		const TMap<FString, FString>& TextureAssetPaths,
+		const EPlaneToPBRTextureRole Role)
+	{
+		const FPlaneToPBRTextureRoleInfo& RoleInfo = FPlaneToPBRTextureRoles::GetInfo(Role);
+		const FString* AssetPath = TextureAssetPaths.Find(RoleInfo.Key);
+		return AssetPath ? LoadObject<UTexture>(nullptr, **AssetPath) : nullptr;
+	}
+}
 
 bool FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(
 	const FString& ContentPath,
@@ -21,31 +35,20 @@ bool FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(
 {
 	OutMaterial = nullptr;
 
-	const FString* NormalAssetPath = TextureAssetPaths.Find(TEXT("normal"));
-	const FString* RoughnessAssetPath = TextureAssetPaths.Find(TEXT("roughness"));
-	const FString* MaskAssetPath = TextureAssetPaths.Find(TEXT("mask"));
-	const FString* BaseColorAssetPath = TextureAssetPaths.Find(TEXT("basecolor"));
-
-	if (!NormalAssetPath || !RoughnessAssetPath || !MaskAssetPath || !BaseColorAssetPath)
-	{
-		OutErrorMessage = TEXT("Missing imported texture assets required for material creation.");
-		return false;
-	}
-
-	UTexture* BaseColorTexture = LoadObject<UTexture>(nullptr, **BaseColorAssetPath);
-	UTexture* NormalTexture = LoadObject<UTexture>(nullptr, **NormalAssetPath);
-	UTexture* RoughnessTexture = LoadObject<UTexture>(nullptr, **RoughnessAssetPath);
-	UTexture* MaskTexture = LoadObject<UTexture>(nullptr, **MaskAssetPath);
+	UTexture* BaseColorTexture = PlaneToPBRMaterialBuilder::LoadTextureForRole(TextureAssetPaths, EPlaneToPBRTextureRole::BaseColor);
+	UTexture* NormalTexture = PlaneToPBRMaterialBuilder::LoadTextureForRole(TextureAssetPaths, EPlaneToPBRTextureRole::Normal);
+	UTexture* RoughnessTexture = PlaneToPBRMaterialBuilder::LoadTextureForRole(TextureAssetPaths, EPlaneToPBRTextureRole::Roughness);
+	UTexture* MaskTexture = PlaneToPBRMaterialBuilder::LoadTextureForRole(TextureAssetPaths, EPlaneToPBRTextureRole::Mask);
 
 	if (!BaseColorTexture || !NormalTexture || !RoughnessTexture || !MaskTexture)
 	{
-		OutErrorMessage = TEXT("Failed to load one or more imported texture assets for material creation.");
+		OutErrorMessage = TEXT("Missing or failed to load one or more imported texture assets for material creation.");
 		return false;
 	}
 
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
 	UMaterialFactoryNew* MaterialFactory = NewObject<UMaterialFactoryNew>();
-	UObject* CreatedAsset = AssetToolsModule.Get().CreateAsset(TEXT("M_PlaneToPBR"), ContentPath, UMaterial::StaticClass(), MaterialFactory);
+	UObject* CreatedAsset = AssetToolsModule.Get().CreateAsset(FPlaneToPBRGeneratedAssetNames::GetMaterialAssetName(), ContentPath, UMaterial::StaticClass(), MaterialFactory);
 	UMaterial* Material = Cast<UMaterial>(CreatedAsset);
 	if (!Material)
 	{
@@ -55,7 +58,7 @@ bool FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(
 
 	UMaterialExpressionTextureSample* BaseColorExpression = NewObject<UMaterialExpressionTextureSample>(Material);
 	BaseColorExpression->Texture = BaseColorTexture;
-	BaseColorExpression->SamplerType = SAMPLERTYPE_Color;
+	BaseColorExpression->SamplerType = FPlaneToPBRTextureRoles::GetInfo(EPlaneToPBRTextureRole::BaseColor).SamplerType;
 	BaseColorExpression->MaterialExpressionEditorX = -600;
 	BaseColorExpression->MaterialExpressionEditorY = -240;
 	Material->GetExpressionCollection().AddExpression(BaseColorExpression);
@@ -63,7 +66,7 @@ bool FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(
 
 	UMaterialExpressionTextureSample* NormalExpression = NewObject<UMaterialExpressionTextureSample>(Material);
 	NormalExpression->Texture = NormalTexture;
-	NormalExpression->SamplerType = SAMPLERTYPE_Normal;
+	NormalExpression->SamplerType = FPlaneToPBRTextureRoles::GetInfo(EPlaneToPBRTextureRole::Normal).SamplerType;
 	NormalExpression->MaterialExpressionEditorX = -600;
 	NormalExpression->MaterialExpressionEditorY = 120;
 	Material->GetExpressionCollection().AddExpression(NormalExpression);
@@ -71,14 +74,14 @@ bool FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(
 
 	UMaterialExpressionTextureSample* RoughnessExpression = NewObject<UMaterialExpressionTextureSample>(Material);
 	RoughnessExpression->Texture = RoughnessTexture;
-	RoughnessExpression->SamplerType = SAMPLERTYPE_LinearGrayscale;
+	RoughnessExpression->SamplerType = FPlaneToPBRTextureRoles::GetInfo(EPlaneToPBRTextureRole::Roughness).SamplerType;
 	RoughnessExpression->MaterialExpressionEditorX = -600;
 	RoughnessExpression->MaterialExpressionEditorY = -20;
 	Material->GetExpressionCollection().AddExpression(RoughnessExpression);
 
 	UMaterialExpressionTextureSample* MaskExpression = NewObject<UMaterialExpressionTextureSample>(Material);
 	MaskExpression->Texture = MaskTexture;
-	MaskExpression->SamplerType = SAMPLERTYPE_LinearGrayscale;
+	MaskExpression->SamplerType = FPlaneToPBRTextureRoles::GetInfo(EPlaneToPBRTextureRole::Mask).SamplerType;
 	MaskExpression->MaterialExpressionEditorX = -600;
 	MaskExpression->MaterialExpressionEditorY = 300;
 	Material->GetExpressionCollection().AddExpression(MaskExpression);
@@ -106,7 +109,7 @@ bool FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(
 		return false;
 	}
 
-	OutMaterialPath = ContentPath / TEXT("M_PlaneToPBR");
+	OutMaterialPath = ContentPath / FPlaneToPBRGeneratedAssetNames::GetMaterialAssetName();
 	OutMaterial = Material;
 	return true;
 }
