@@ -1,12 +1,12 @@
 # escape=`
 FROM mcr.microsoft.com/powershell:lts-windowsservercore-ltsc2022 AS base
 
-WORKDIR C:\workspace
+WORKDIR C:\\workspace
 
 ENV UE_ENGINE_DIR=""
 ENV PLUGIN_TARGET_PLATFORMS="Win64"
 
-COPY . C:\workspace
+COPY . C:\\workspace
 
 FROM base AS test
 

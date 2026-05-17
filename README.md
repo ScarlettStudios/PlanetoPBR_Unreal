@@ -115,7 +115,9 @@ $env:PLUGIN_TARGET_PLATFORMS = "Win64"
 
 ### Docker Packaging
 
-The Docker image in this repo does not include or download Unreal Engine. It expects an Unreal Engine installation to be available in the container or runner through `UE_ENGINE_DIR`.
+The Docker image in this repo does not include or download Unreal Engine, Visual Studio Build Tools, or Windows SDK components. It expects those dependencies to be available in the container environment through mounted paths or a prebuilt image.
+
+For CI, prefer the self-hosted Windows runner workflow below. Unreal's Windows build prerequisites are large and version-sensitive, so the Dockerfile is kept as a lightweight wrapper instead of installing the toolchain during every image build.
 
 Build the Docker image:
 
@@ -154,10 +156,11 @@ The workflow at `.github/workflows/package-plugin.yml` uses the same packaging s
 
 - a Windows self-hosted runner,
 - Unreal Engine installed on the runner,
-- Visual Studio Build Tools available to Unreal Build Tool,
+- Visual Studio 2022 Build Tools available to Unreal Build Tool, including the C++ x64/x86 toolset required by the configured Unreal version,
+- a .NET Framework SDK installed for Unreal modules that require it,
 - `UE_ENGINE_DIR` configured as a workflow input or repository variable.
 
-Use `workflow_dispatch` to select the target platform and engine directory.
+The workflow runs `Build/RunPlaneToPBRAutomationTests.ps1` before `Build/PackagePlaneToPBRPlugin.ps1`. Use `workflow_dispatch` to select the target platform and engine directory.
 
 ## Repository Layout
 
