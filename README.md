@@ -123,16 +123,30 @@ Build the Docker image:
 docker build -t planetopbr-plugin-packager .
 ```
 
-Mount an Unreal Engine installation into the container and set `UE_ENGINE_DIR` to that mounted path:
+Build and run the automation-test stage:
+
+```powershell
+docker build --target test -t planetopbr-plugin-tests .
+
+docker run --rm `
+  -e UE_ENGINE_DIR=C:\UnrealEngine `
+  -v "C:\Program Files\Epic Games\UE_5.7:C:\UnrealEngine" `
+  planetopbr-plugin-tests
+```
+
+Mount a Windows Unreal Engine installation into the container and set `UE_ENGINE_DIR` to that mounted path:
 
 ```powershell
 docker run --rm `
-  -e UE_ENGINE_DIR=/opt/unreal-engine `
-  -e PLUGIN_TARGET_PLATFORMS=Linux `
-  -v /path/to/UnrealEngine:/opt/unreal-engine `
-  -v ${PWD}/Artifacts:/workspace/Artifacts `
+  -e UE_ENGINE_DIR=C:\UnrealEngine `
+  -e PLUGIN_TARGET_PLATFORMS=Win64 `
+  -v "C:\Program Files\Epic Games\UE_5.7:C:\UnrealEngine" `
+  -v "${PWD}/Artifacts:C:\workspace\Artifacts" `
   planetopbr-plugin-packager
 ```
+
+The default Docker target is the `package` stage, which runs `Build/RunPlaneToPBRAutomationTests.ps1` before `Build/PackagePlaneToPBRPlugin.ps1`.
+Docker must be running Windows containers for this image.
 
 ### GitHub Actions
 
