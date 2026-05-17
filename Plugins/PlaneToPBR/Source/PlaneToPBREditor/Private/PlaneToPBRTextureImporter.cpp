@@ -7,6 +7,8 @@
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "PlaneToPBRGeneratedAssetNames.h"
+#include "PlaneToPBRTextureRoles.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
@@ -17,20 +19,19 @@ bool FPlaneToPBRTextureImporter::ImportDownloadedTextures(
 	TMap<FString, FString>& OutTextureAssetPaths,
 	FString& OutErrorMessage)
 {
-	static const TArray<FString> RequiredTextureKeys = { TEXT("depth"), TEXT("normal"), TEXT("roughness"), TEXT("mask") };
-
-	for (const FString& TextureKey : RequiredTextureKeys)
+	for (const EPlaneToPBRTextureRole Role : FPlaneToPBRTextureRoles::GetRequiredDownloadedRoles())
 	{
-		const FString* TexturePath = TexturePaths.Find(TextureKey);
+		const FPlaneToPBRTextureRoleInfo& RoleInfo = FPlaneToPBRTextureRoles::GetInfo(Role);
+		const FString* TexturePath = TexturePaths.Find(RoleInfo.Key);
 		if (!TexturePath || TexturePath->IsEmpty())
 		{
-			OutErrorMessage = FString::Printf(TEXT("Missing downloaded %s texture path."), *TextureKey);
+			OutErrorMessage = FString::Printf(TEXT("Missing downloaded %s texture path."), RoleInfo.Key);
 			return false;
 		}
 
 		if (!FPaths::FileExists(*TexturePath))
 		{
-			OutErrorMessage = FString::Printf(TEXT("Downloaded %s texture does not exist: %s"), *TextureKey, **TexturePath);
+			OutErrorMessage = FString::Printf(TEXT("Downloaded %s texture does not exist: %s"), RoleInfo.Key, **TexturePath);
 			return false;
 		}
 	}
@@ -41,18 +42,19 @@ bool FPlaneToPBRTextureImporter::ImportDownloadedTextures(
 		return false;
 	}
 
-	const FString RunFolderName = TEXT("Run_") + FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
-	OutContentPath = TEXT("/Game/PlaneToPBR/Generated/") + RunFolderName;
+	const FString RunFolderName = FPlaneToPBRGeneratedAssetNames::MakeRunFolderName(FDateTime::Now());
+	OutContentPath = FPlaneToPBRGeneratedAssetNames::MakeGeneratedContentPath(RunFolderName);
 
 	TArray<UAssetImportTask*> ImportTasks;
-	for (const FString& TextureKey : RequiredTextureKeys)
+	for (const EPlaneToPBRTextureRole Role : FPlaneToPBRTextureRoles::GetRequiredDownloadedRoles())
 	{
-		const FString& TexturePath = *TexturePaths.Find(TextureKey);
+		const FPlaneToPBRTextureRoleInfo& RoleInfo = FPlaneToPBRTextureRoles::GetInfo(Role);
+		const FString& TexturePath = *TexturePaths.Find(RoleInfo.Key);
 
 		UAssetImportTask* ImportTask = NewObject<UAssetImportTask>();
 		ImportTask->Filename = TexturePath;
 		ImportTask->DestinationPath = OutContentPath;
-		ImportTask->DestinationName = TEXT("T_") + TextureKey.Left(1).ToUpper() + TextureKey.RightChop(1);
+		ImportTask->DestinationName = RoleInfo.AssetName;
 		ImportTask->bAutomated = true;
 		ImportTask->bReplaceExisting = true;
 		ImportTask->bSave = true;
@@ -62,7 +64,7 @@ bool FPlaneToPBRTextureImporter::ImportDownloadedTextures(
 	UAssetImportTask* BaseColorImportTask = NewObject<UAssetImportTask>();
 	BaseColorImportTask->Filename = SourceImagePath;
 	BaseColorImportTask->DestinationPath = OutContentPath;
-	BaseColorImportTask->DestinationName = TEXT("T_BaseColor");
+	BaseColorImportTask->DestinationName = FPlaneToPBRTextureRoles::GetInfo(EPlaneToPBRTextureRole::BaseColor).AssetName;
 	BaseColorImportTask->bAutomated = true;
 	BaseColorImportTask->bReplaceExisting = true;
 	BaseColorImportTask->bSave = true;
@@ -80,28 +82,20 @@ bool FPlaneToPBRTextureImporter::ImportDownloadedTextures(
 		}
 
 		const FString AssetName = FPaths::GetBaseFilename(ImportTask->ImportedObjectPaths[0]);
-		const FString TextureKey = AssetName == TEXT("T_BaseColor")
-			? TEXT("basecolor")
-			: AssetName.RightChop(2).ToLower();
-		OutTextureAssetPaths.Add(TextureKey, ImportTask->ImportedObjectPaths[0]);
+		const EPlaneToPBRTextureRole Role = FPlaneToPBRTextureRoles::FromImportedAssetName(AssetName);
+		const FPlaneToPBRTextureRoleInfo& RoleInfo = FPlaneToPBRTextureRoles::GetInfo(Role);
+		if (Role == EPlaneToPBRTextureRole::Unknown)
+		{
+			OutErrorMessage = FString::Printf(TEXT("Imported texture has an unknown PlaneToPBR role: %s"), *AssetName);
+			return false;
+		}
+
+		OutTextureAssetPaths.Add(RoleInfo.Key, ImportTask->ImportedObjectPaths[0]);
 
 		if (UTexture2D* ImportedTexture = LoadObject<UTexture2D>(nullptr, *ImportTask->ImportedObjectPaths[0]))
 		{
-			if (TextureKey == TEXT("basecolor"))
-			{
-				ImportedTexture->SRGB = true;
-				ImportedTexture->CompressionSettings = TC_Default;
-			}
-			else if (TextureKey == TEXT("normal"))
-			{
-				ImportedTexture->SRGB = false;
-				ImportedTexture->CompressionSettings = TC_Normalmap;
-			}
-			else
-			{
-				ImportedTexture->SRGB = false;
-				ImportedTexture->CompressionSettings = TC_Grayscale;
-			}
+			ImportedTexture->SRGB = RoleInfo.bSRGB;
+			ImportedTexture->CompressionSettings = RoleInfo.CompressionSettings;
 
 			ImportedTexture->PostEditChange();
 			ImportedTexture->MarkPackageDirty();
