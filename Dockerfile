@@ -7,4 +7,4 @@ ENV PLUGIN_TARGET_PLATFORMS="Linux"
 
 COPY . /workspace
 
-CMD ["pwsh", "-NoLogo", "-NoProfile", "-File", "/workspace/Scripts/PackagePlaneToPBRPlugin.ps1"]
+CMD ["pwsh", "-NoLogo", "-NoProfile", "-File", "/workspace/Build/PackagePlaneToPBRPlugin.ps1"]

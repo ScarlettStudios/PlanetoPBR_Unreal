@@ -28,7 +28,7 @@ jobs:
 
       - name: Package plugin
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: ./Scripts/PackagePlaneToPBRPlugin.ps1
+        run: ./Build/PackagePlaneToPBRPlugin.ps1
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4

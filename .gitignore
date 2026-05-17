@@ -43,3 +43,4 @@ Content/__ExternalActors__/test/
 Content/__ExternalObjects__/test/
 
 # Generated PlaneToPBR runtime outputs are under Saved/, which is ignored above.
+Content/PlaneToPBR/Generated/
