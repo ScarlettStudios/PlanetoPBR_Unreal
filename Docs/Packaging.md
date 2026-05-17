@@ -40,10 +40,13 @@ $env:PLUGIN_TARGET_PLATFORMS = "Win64"
 
 ## GitHub Actions
 
-The workflow at `.github/workflows/package-plugin.yml` builds the Docker image and uses the same packaging script. It expects:
+The workflow at `.github/workflows/package-plugin.yml` uses the same packaging script. It expects:
 
-- a Linux self-hosted runner,
-- Docker available to the runner,
-- Unreal Engine available inside the container at the configured `UE_ENGINE_DIR`.
+- a Windows self-hosted runner,
+- Unreal Engine installed on the runner,
+- Visual Studio Build Tools available to Unreal Build Tool,
+- `UE_ENGINE_DIR` configured as a workflow input or repository variable.
 
 Use `workflow_dispatch` to select the target platform and engine directory.
+
+The Dockerfile remains available for Linux-based packaging environments where Unreal Engine is mounted into the container.
