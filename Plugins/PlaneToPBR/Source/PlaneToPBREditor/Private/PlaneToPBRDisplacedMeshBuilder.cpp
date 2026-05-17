@@ -14,6 +14,9 @@
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "PlaneToPBRDisplacedPlaneGeometry.h"
+#include "PlaneToPBRGeneratedAssetNames.h"
+#include "PlaneToPBRTextureRoles.h"
 #include "ScopedTransaction.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -38,17 +41,17 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(
 		return false;
 	}
 
-	const FString* DepthTexturePath = TexturePaths.Find(TEXT("depth"));
+	const FString* DepthTexturePath = TexturePaths.Find(FPlaneToPBRTextureRoles::GetInfo(EPlaneToPBRTextureRole::Depth).Key);
 	if (!DepthTexturePath || DepthTexturePath->IsEmpty() || !FPaths::FileExists(*DepthTexturePath))
 	{
 		OutErrorMessage = TEXT("Generated depth PNG is not available for displaced plane creation.");
 		return false;
 	}
 
-	const FString MeshOutputDir = FPaths::ProjectSavedDir() / TEXT("PlaneToPBR/Meshes");
+	const FString MeshOutputDir = FPlaneToPBRGeneratedAssetNames::GetDisplacedMeshOutputDir();
 	IFileManager::Get().MakeDirectory(*MeshOutputDir, true);
 
-	const FString ObjPath = MeshOutputDir / TEXT("SM_PlaneToPBR_DisplacedPlane.obj");
+	const FString ObjPath = MeshOutputDir / FPlaneToPBRGeneratedAssetNames::GetDisplacedMeshObjName();
 	int32 DepthWidth = 0;
 	int32 DepthHeight = 0;
 	int32 SubdivisionsY = 0;
@@ -60,7 +63,7 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(
 	UAssetImportTask* ImportTask = NewObject<UAssetImportTask>();
 	ImportTask->Filename = ObjPath;
 	ImportTask->DestinationPath = ContentPath;
-	ImportTask->DestinationName = TEXT("SM_PlaneToPBR_DisplacedPlane");
+	ImportTask->DestinationName = FPlaneToPBRGeneratedAssetNames::GetDisplacedMeshAssetName();
 	ImportTask->bAutomated = true;
 	ImportTask->bReplaceExisting = true;
 	ImportTask->bSave = true;
@@ -152,11 +155,6 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateDisplacedPlaneObj(
 	int32& OutSubdivisionsY,
 	FString& OutErrorMessage)
 {
-	static constexpr int32 SubdivisionsX = 96;
-	static constexpr float PlaneWidthCm = 200.0f;
-	static constexpr float DisplacementStrengthCm = 25.0f;
-	static constexpr float HeightCenter = 0.5f;
-
 	TArray<uint8> CompressedDepthData;
 	if (!FFileHelper::LoadFileToArray(CompressedDepthData, *DepthTexturePath))
 	{
@@ -179,74 +177,32 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateDisplacedPlaneObj(
 		return false;
 	}
 
-	TArray<uint8> RawDepthData;
-	if (!ImageWrapper->GetRaw(ERGBFormat::Gray, 8, RawDepthData))
+	FPlaneToPBRDepthImage DepthImage;
+	if (!ImageWrapper->GetRaw(ERGBFormat::Gray, 8, DepthImage.Pixels))
 	{
 		OutErrorMessage = FString::Printf(TEXT("Failed to extract generated depth pixels: %s"), *DepthTexturePath);
 		return false;
 	}
 
-	OutDepthWidth = ImageWrapper->GetWidth();
-	OutDepthHeight = ImageWrapper->GetHeight();
+	DepthImage.Width = ImageWrapper->GetWidth();
+	DepthImage.Height = ImageWrapper->GetHeight();
+	OutDepthWidth = DepthImage.Width;
+	OutDepthHeight = DepthImage.Height;
 	if (OutDepthWidth <= 0 || OutDepthHeight <= 0)
 	{
 		OutErrorMessage = FString::Printf(TEXT("Generated depth image has invalid dimensions: %s"), *DepthTexturePath);
 		return false;
 	}
 
-	const float AspectRatio = static_cast<float>(OutDepthWidth) / static_cast<float>(OutDepthHeight);
-	OutSubdivisionsY = FMath::Max(1, FMath::RoundToInt(static_cast<float>(SubdivisionsX) / AspectRatio));
-	const float PlaneHeightCm = PlaneWidthCm / AspectRatio;
-
-	auto SampleHeight = [&RawDepthData, OutDepthWidth, OutDepthHeight](const float U, const float V)
+	FPlaneToPBRDisplacedPlaneGeometry Geometry;
+	if (!FPlaneToPBRDisplacedPlaneGeometryBuilder::Build(DepthImage, FPlaneToPBRDisplacedPlaneSettings(), Geometry))
 	{
-		const int32 X = FMath::Clamp(FMath::RoundToInt(U * static_cast<float>(OutDepthWidth - 1)), 0, OutDepthWidth - 1);
-		const int32 Y = FMath::Clamp(FMath::RoundToInt((1.0f - V) * static_cast<float>(OutDepthHeight - 1)), 0, OutDepthHeight - 1);
-		return static_cast<float>(RawDepthData[Y * OutDepthWidth + X]) / 255.0f;
-	};
-
-	FString ObjContents;
-	ObjContents.Reserve((SubdivisionsX + 1) * (OutSubdivisionsY + 1) * 64);
-	ObjContents += TEXT("# PlaneToPBR generated displaced plane\n");
-	ObjContents += TEXT("o PlaneToPBR_DisplacedPlane\n");
-
-	for (int32 YIndex = 0; YIndex <= OutSubdivisionsY; ++YIndex)
-	{
-		const float V = static_cast<float>(YIndex) / static_cast<float>(OutSubdivisionsY);
-		const float YPosition = (V - 0.5f) * PlaneHeightCm;
-		for (int32 XIndex = 0; XIndex <= SubdivisionsX; ++XIndex)
-		{
-			const float U = static_cast<float>(XIndex) / static_cast<float>(SubdivisionsX);
-			const float XPosition = (U - 0.5f) * PlaneWidthCm;
-			const float ZPosition = (SampleHeight(U, V) - HeightCenter) * DisplacementStrengthCm;
-			ObjContents += FString::Printf(TEXT("v %.6f %.6f %.6f\n"), XPosition, YPosition, ZPosition);
-		}
+		OutErrorMessage = FString::Printf(TEXT("Failed to generate displaced plane geometry from depth image: %s"), *DepthTexturePath);
+		return false;
 	}
 
-	for (int32 YIndex = 0; YIndex <= OutSubdivisionsY; ++YIndex)
-	{
-		const float V = static_cast<float>(YIndex) / static_cast<float>(OutSubdivisionsY);
-		for (int32 XIndex = 0; XIndex <= SubdivisionsX; ++XIndex)
-		{
-			const float U = static_cast<float>(XIndex) / static_cast<float>(SubdivisionsX);
-			ObjContents += FString::Printf(TEXT("vt %.6f %.6f\n"), U, V);
-		}
-	}
-
-	const int32 RowWidth = SubdivisionsX + 1;
-	for (int32 YIndex = 0; YIndex < OutSubdivisionsY; ++YIndex)
-	{
-		for (int32 XIndex = 0; XIndex < SubdivisionsX; ++XIndex)
-		{
-			const int32 A = YIndex * RowWidth + XIndex + 1;
-			const int32 B = A + 1;
-			const int32 C = A + RowWidth;
-			const int32 D = C + 1;
-			ObjContents += FString::Printf(TEXT("f %d/%d %d/%d %d/%d\n"), A, A, B, B, D, D);
-			ObjContents += FString::Printf(TEXT("f %d/%d %d/%d %d/%d\n"), A, A, D, D, C, C);
-		}
-	}
-
+	OutSubdivisionsY = Geometry.SubdivisionsY;
+	const FString ObjContents = FPlaneToPBRDisplacedPlaneGeometryBuilder::WriteObjString(Geometry);
 	if (!FFileHelper::SaveStringToFile(ObjContents, *ObjPath))
 	{
 		OutErrorMessage = FString::Printf(TEXT("Failed to write displaced plane OBJ: %s"), *ObjPath);
