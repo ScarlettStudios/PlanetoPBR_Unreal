@@ -1,24 +1,29 @@
 # PlaneToPBR Unreal
 
-Unreal recreation of the Blender PlaneToPBR workflow.
+PlaneToPBR is an Unreal Engine plugin that generates PBR material assets and displaced plane meshes from a source image.
 
-The project sends a source image and optional prompt to the same Hugging Face Space used by the Blender extension, downloads generated PBR maps, and creates a textured plane in Unreal.
+The product code lives under:
+
+```text
+Plugins/PlaneToPBR
+```
+
+The Unreal project in this repository is a host project for plugin development, packaging, and testing.
 
 ## Current Status
 
-This is a working Unreal proof of concept.
+PlaneToPBR is a plugin-first Unreal implementation of the Blender PlaneToPBR workflow.
 
 Implemented:
 
 - Hugging Face Gradio queue client
-- Same HF Space endpoint as the Blender project
-- Image upload
+- Source image upload
 - Queue join and polling
 - PNG map download
-- Runtime texture decoding
-- Generated plane actor
-- Auto test actor
-- Base PlaneToPBR material
+- Persistent texture asset import
+- Generated material creation
+- Displaced plane mesh import and actor placement
+- Editor window entry point
 
 Generated maps:
 
@@ -28,9 +33,34 @@ Generated maps:
 - Roughness
 - Prompt-based mask
 
+## Plugin Workflow
+
+Open the editor tool from:
+
+```text
+Tools > PlaneToPBR
+```
+
+Workflow:
+
+1. Pick a source image.
+2. Enter an optional prompt.
+3. Generate PBR maps through the configured Hugging Face Space.
+4. Import the generated maps as persistent Unreal assets.
+5. Create a generated material.
+6. Create and place a displaced plane in the level.
+
+Generated plugin outputs are written under:
+
+```text
+Content/PlaneToPBR/Generated/
+```
+
+That folder is generated-only and ignored by source control.
+
 ## Hugging Face Space
 
-The project calls:
+The plugin calls:
 
 ```text
 https://ascarlettvfx-testpbr2026.hf.space
@@ -48,135 +78,108 @@ The Space must return four PNG file outputs in this order:
 depth, normal, roughness, mask
 ```
 
-The source image is saved locally as the diffuse map.
+The source image is used as the diffuse map.
 
-## Testing In Unreal
+## Packaging
 
-Use the built-in test actor:
+PlaneToPBR is packaged with Unreal Automation Tool `BuildPlugin`.
 
-```text
-PlanetoPBRGeneratorActor
-```
-
-Steps:
-
-1. Open the project in Unreal.
-2. Open or create a level.
-3. Place `PlanetoPBRGeneratorActor` in the level.
-4. Set `ImagePath`, or use the default:
+The packaging script lives at:
 
 ```text
-F:\test_image.png
+Build/PackagePlaneToPBRPlugin.ps1
 ```
 
-5. Set `Prompt`, for example:
+It packages only:
 
 ```text
-windows
+Plugins/PlaneToPBR/PlaneToPBR.uplugin
 ```
 
-6. Press Play.
-
-Expected output appears in:
+The packaged plugin is written to:
 
 ```text
-Saved/PlaneToPBR_textures
+Artifacts/PlaneToPBR
+Artifacts/PlaneToPBR.zip
 ```
 
-Check the Output Log for:
+`Artifacts/` is generated-only and ignored by source control.
 
-```text
-LogPlanetoPBR
-LogPlanetoPBRGenerator
+### Local Windows Packaging
+
+```powershell
+$env:UE_ENGINE_DIR = "C:\Program Files\Epic Games\UE_5.7"
+$env:PLUGIN_TARGET_PLATFORMS = "Win64"
+.\Build\PackagePlaneToPBRPlugin.ps1
 ```
 
-## Material
+### Docker Packaging
 
-The base material is:
+The Docker image in this repo does not include or download Unreal Engine. It expects an Unreal Engine installation to be available in the container or runner through `UE_ENGINE_DIR`.
 
-```text
-/Game/PlaneToPBR/M_PlaneToPBR
+Build the Docker image:
+
+```powershell
+docker build -t planetopbr-plugin-packager .
 ```
 
-Expected texture parameters:
+Mount an Unreal Engine installation into the container and set `UE_ENGINE_DIR` to that mounted path:
 
-- `BaseColorTexture`
-- `NormalTexture`
-- `RoughnessTexture`
-- `DepthTexture`
-- `MaskTexture`
-
-## Verification Script
-
-The HF Space can be checked from Unreal's embedded Python runtime:
-
-```text
-Tools/VerifyHFSpaceFromUnreal.py
+```powershell
+docker run --rm `
+  -e UE_ENGINE_DIR=/opt/unreal-engine `
+  -e PLUGIN_TARGET_PLATFORMS=Linux `
+  -v /path/to/UnrealEngine:/opt/unreal-engine `
+  -v ${PWD}/Artifacts:/workspace/Artifacts `
+  planetopbr-plugin-packager
 ```
 
-It verifies:
+### GitHub Actions
 
-- `api_name="predict"` exists
-- `fn_index` resolves
-- upload works
-- queue processing completes
-- all four generated outputs are PNG files
+The workflow at `.github/workflows/package-plugin.yml` uses the same packaging script. It expects:
 
-## Important Folders
+- a Windows self-hosted runner,
+- Unreal Engine installed on the runner,
+- Visual Studio Build Tools available to Unreal Build Tool,
+- `UE_ENGINE_DIR` configured as a workflow input or repository variable.
+
+Use `workflow_dispatch` to select the target platform and engine directory.
+
+## Repository Layout
 
 Track in source control:
 
 ```text
+.github/
+Build/
 Config/
-Content/PlaneToPBR/
-Source/
-Tools/
+Content/Maps/
+Content/__ExternalActors__/
+Content/__ExternalObjects__/
+Plugins/PlaneToPBR/
+Source/planetoPBR_unreal/
+Dockerfile
+README.md
 planetoPBR_unreal.uproject
-.vsconfig
 ```
 
 Do not track generated folders:
 
 ```text
+Artifacts/
 Binaries/
 DerivedDataCache/
 Intermediate/
 Saved/
+Content/PlaneToPBR/Generated/
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
 .vs/
 .idea/
 ```
 
 These are covered by `.gitignore`.
 
-## Blender Reference Project
+## Host Project
 
-Original Blender extension project:
-
-```text
-C:\Users\joshu\RiderProjects\PlaneToPBR
-```
-
-The Unreal implementation mirrors the Blender free Hugging Face flow:
-
-1. Select image
-2. Enter prompt
-3. Call Hugging Face
-4. Download PBR maps
-5. Create a plane
-6. Apply generated material
-
-## Next Plugin Direction
-
-For a production Unreal extension, the next step is to convert this project code into an Editor Plugin.
-
-Recommended final workflow:
-
-1. Open **Window > PlaneToPBR**
-2. Pick an image
-3. Enter prompt
-4. Click Generate
-5. Import generated PNG maps as persistent `.uasset` textures
-6. Create a material instance
-7. Spawn a correctly scaled plane in the level
-
-The main remaining gap is persistent asset import. The current proof of concept saves generated PNG files under `Saved/` and creates runtime textures.
+The root Unreal project exists only to host and test the plugin. Keep product behavior in `Plugins/PlaneToPBR`; keep `Source/planetoPBR_unreal` limited to minimal game module boilerplate.
