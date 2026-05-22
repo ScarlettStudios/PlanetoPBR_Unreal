@@ -17,6 +17,21 @@ namespace PlaneToPBRHuggingFace
 	const FString SpaceBaseUrl = TEXT("https://ascarlettvfx-testpbr2026.hf.space");
 	const FString PredictApiName = TEXT("predict");
 
+	FString TruncateResponseBody(const FString& ResponseBody, int32 MaxLength = 150)
+	{
+		if (ResponseBody.IsEmpty())
+		{
+			return TEXT("(empty response)");
+		}
+
+		if (ResponseBody.Len() <= MaxLength)
+		{
+			return ResponseBody;
+		}
+
+		return ResponseBody.Left(MaxLength) + TEXT("...");
+	}
+
 	void CompleteRequest(
 		FPlaneToPBRHuggingFaceCallback CompletionCallback,
 		bool bSucceeded,
@@ -63,16 +78,17 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 		{
 			if (!bConnectedSuccessfully || !Response.IsValid())
 			{
-				PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to fetch Hugging Face Space config."));
+				PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to connect to Hugging Face Space for config. Check your internet connection and try again."));
 				return;
 			}
 
 			if (Response->GetResponseCode() < 200 || Response->GetResponseCode() >= 300)
 			{
+				const FString ResponseExcerpt = PlaneToPBRHuggingFace::TruncateResponseBody(Response->GetContentAsString());
 				PlaneToPBRHuggingFace::CompleteRequest(
 					MoveTemp(CompletionCallback),
 					false,
-					FString::Printf(TEXT("Hugging Face Space config request failed with HTTP %d."), Response->GetResponseCode()));
+					FString::Printf(TEXT("Hugging Face Space config request failed (HTTP %d): %s. The Space may be down or sleeping."), Response->GetResponseCode(), *ResponseExcerpt));
 				return;
 			}
 
@@ -110,16 +126,17 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 				{
 					if (!bUploadConnectedSuccessfully || !UploadResponse.IsValid())
 					{
-						PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to upload image to Hugging Face Space."));
+						PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to connect to Hugging Face Space for image upload. Check your internet connection and try again."));
 						return;
 					}
 
 					if (UploadResponse->GetResponseCode() < 200 || UploadResponse->GetResponseCode() >= 300)
 					{
+						const FString ResponseExcerpt = PlaneToPBRHuggingFace::TruncateResponseBody(UploadResponse->GetContentAsString());
 						PlaneToPBRHuggingFace::CompleteRequest(
 							MoveTemp(CompletionCallback),
 							false,
-							FString::Printf(TEXT("Hugging Face image upload failed with HTTP %d."), UploadResponse->GetResponseCode()));
+							FString::Printf(TEXT("Hugging Face image upload failed (HTTP %d): %s"), UploadResponse->GetResponseCode(), *ResponseExcerpt));
 						return;
 					}
 
@@ -154,16 +171,17 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 						{
 							if (!bQueueJoinConnectedSuccessfully || !QueueJoinResponse.IsValid())
 							{
-								PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to join Hugging Face generation queue."));
+								PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to connect to Hugging Face Space to join generation queue. Check your internet connection and try again."));
 								return;
 							}
 
 							if (QueueJoinResponse->GetResponseCode() < 200 || QueueJoinResponse->GetResponseCode() >= 300)
 							{
+								const FString ResponseExcerpt = PlaneToPBRHuggingFace::TruncateResponseBody(QueueJoinResponse->GetContentAsString());
 								PlaneToPBRHuggingFace::CompleteRequest(
 									MoveTemp(CompletionCallback),
 									false,
-									FString::Printf(TEXT("Hugging Face queue join failed with HTTP %d."), QueueJoinResponse->GetResponseCode()));
+									FString::Printf(TEXT("Hugging Face queue join failed (HTTP %d): %s"), QueueJoinResponse->GetResponseCode(), *ResponseExcerpt));
 								return;
 							}
 
@@ -186,16 +204,17 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 								{
 									if (!bQueuePollConnectedSuccessfully || !QueuePollResponse.IsValid())
 									{
-										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to poll Hugging Face generation queue."));
+										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to connect to Hugging Face Space to poll generation queue. Check your internet connection and try again."));
 										return;
 									}
 
 									if (QueuePollResponse->GetResponseCode() < 200 || QueuePollResponse->GetResponseCode() >= 300)
 									{
+										const FString ResponseExcerpt = PlaneToPBRHuggingFace::TruncateResponseBody(QueuePollResponse->GetContentAsString());
 										PlaneToPBRHuggingFace::CompleteRequest(
 											MoveTemp(CompletionCallback),
 											false,
-											FString::Printf(TEXT("Hugging Face queue polling failed with HTTP %d."), QueuePollResponse->GetResponseCode()));
+											FString::Printf(TEXT("Hugging Face queue polling failed (HTTP %d): %s"), QueuePollResponse->GetResponseCode(), *ResponseExcerpt));
 										return;
 									}
 
@@ -228,25 +247,25 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 							if (!QueuePollRequest->ProcessRequest())
 							{
-								PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face queue polling request."));
+								PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face queue polling request. This is a rare internal HTTP error."));
 							}
 						});
 
 					if (!QueueJoinRequest->ProcessRequest())
 					{
-						PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face queue join request."));
+						PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face queue join request. This is a rare internal HTTP error."));
 					}
 				});
 
 			if (!UploadRequest->ProcessRequest())
 			{
-				PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face image upload request."));
+				PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face image upload request. This is a rare internal HTTP error."));
 			}
 		});
 
 	if (!ConfigRequest->ProcessRequest())
 	{
-		PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face Space config request."));
+		PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to start Hugging Face Space config request. This is a rare internal HTTP error."));
 	}
 }
 
@@ -267,14 +286,14 @@ bool FPlaneToPBRHuggingFaceClient::ResolvePredictFunctionIndex(const FString& Co
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(ConfigJson);
 	if (!FJsonSerializer::Deserialize(JsonReader, ConfigObject) || !ConfigObject.IsValid())
 	{
-		OutErrorMessage = TEXT("Hugging Face Space config returned invalid JSON.");
+		OutErrorMessage = TEXT("Hugging Face Space config returned invalid JSON. The API response format may have changed.");
 		return false;
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* Dependencies = nullptr;
 	if (!ConfigObject->TryGetArrayField(TEXT("dependencies"), Dependencies) || !Dependencies)
 	{
-		OutErrorMessage = TEXT("Hugging Face Space config is missing dependencies.");
+		OutErrorMessage = TEXT("Hugging Face Space config is missing 'dependencies' field. The API response format may have changed.");
 		return false;
 	}
 
@@ -294,7 +313,7 @@ bool FPlaneToPBRHuggingFaceClient::ResolvePredictFunctionIndex(const FString& Co
 		}
 	}
 
-	OutErrorMessage = TEXT("Hugging Face Space config does not include the predict API.");
+	OutErrorMessage = TEXT("Hugging Face Space config does not include the 'predict' API. The Space may be misconfigured or the API format may have changed.");
 	return false;
 }
 
@@ -303,13 +322,13 @@ bool FPlaneToPBRHuggingFaceClient::TryReadImageFile(const FString& ImagePath, TA
 	const FString NormalizedImagePath = ImagePath.TrimStartAndEnd();
 	if (!FPlatformFileManager::Get().GetPlatformFile().FileExists(*NormalizedImagePath))
 	{
-		OutErrorMessage = FString::Printf(TEXT("Input image not found: %s"), *NormalizedImagePath);
+		OutErrorMessage = FString::Printf(TEXT("Input image not found: %s. Verify the file path is correct."), *NormalizedImagePath);
 		return false;
 	}
 
 	if (!FFileHelper::LoadFileToArray(OutImageBytes, *NormalizedImagePath))
 	{
-		OutErrorMessage = FString::Printf(TEXT("Failed to read input image: %s"), *NormalizedImagePath);
+		OutErrorMessage = FString::Printf(TEXT("Failed to read input image: %s. Check file permissions and ensure the file is not locked."), *NormalizedImagePath);
 		return false;
 	}
 
@@ -366,20 +385,20 @@ bool FPlaneToPBRHuggingFaceClient::TryParseUploadPath(const FString& UploadJson,
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(UploadJson);
 	if (!FJsonSerializer::Deserialize(JsonReader, UploadResponseArray))
 	{
-		OutErrorMessage = TEXT("Hugging Face upload returned invalid JSON.");
+		OutErrorMessage = TEXT("Hugging Face upload returned invalid JSON. The API response format may have changed.");
 		return false;
 	}
 
 	if (UploadResponseArray.Num() == 0 || !UploadResponseArray[0].IsValid())
 	{
-		OutErrorMessage = TEXT("Hugging Face upload returned an empty response.");
+		OutErrorMessage = TEXT("Hugging Face upload returned an empty response. The API response format may have changed.");
 		return false;
 	}
 
 	OutUploadedPath = UploadResponseArray[0]->AsString();
 	if (OutUploadedPath.IsEmpty())
 	{
-		OutErrorMessage = TEXT("Hugging Face upload response did not include an uploaded path.");
+		OutErrorMessage = TEXT("Hugging Face upload response did not include an uploaded path. The API response format may have changed.");
 		return false;
 	}
 
@@ -423,13 +442,13 @@ bool FPlaneToPBRHuggingFaceClient::TryParseQueueEventId(const FString& QueueJoin
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(QueueJoinJson);
 	if (!FJsonSerializer::Deserialize(JsonReader, QueueJoinObject) || !QueueJoinObject.IsValid())
 	{
-		OutErrorMessage = TEXT("Hugging Face queue join returned invalid JSON.");
+		OutErrorMessage = TEXT("Hugging Face queue join returned invalid JSON. The API response format may have changed.");
 		return false;
 	}
 
 	if (!QueueJoinObject->TryGetStringField(TEXT("event_id"), OutEventId) || OutEventId.IsEmpty())
 	{
-		OutErrorMessage = TEXT("Hugging Face queue join response did not include an event_id.");
+		OutErrorMessage = TEXT("Hugging Face queue join response did not include an 'event_id'. The API response format may have changed.");
 		return false;
 	}
 
@@ -459,7 +478,7 @@ bool FPlaneToPBRHuggingFaceClient::TryParseQueuePollResponse(const FString& Queu
 		const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(EventJson);
 		if (!FJsonSerializer::Deserialize(JsonReader, EventObject) || !EventObject.IsValid())
 		{
-			OutErrorMessage = TEXT("Hugging Face queue polling returned invalid event JSON.");
+			OutErrorMessage = TEXT("Hugging Face queue polling returned invalid event JSON. The API response format may have changed.");
 			return false;
 		}
 
@@ -471,7 +490,29 @@ bool FPlaneToPBRHuggingFaceClient::TryParseQueuePollResponse(const FString& Queu
 
 		if (MessageType == TEXT("process_failed"))
 		{
-			OutErrorMessage = FString::Printf(TEXT("Hugging Face generation failed: %s"), *EventJson);
+			// Try to extract a meaningful error message from the output field
+			FString ErrorDetail;
+			const TSharedPtr<FJsonObject>* OutputObject = nullptr;
+			if (EventObject->TryGetObjectField(TEXT("output"), OutputObject) && OutputObject && OutputObject->IsValid())
+			{
+				const TArray<TSharedPtr<FJsonValue>>* ErrorArray = nullptr;
+				if ((*OutputObject)->TryGetArrayField(TEXT("error"), ErrorArray) && ErrorArray && ErrorArray->Num() > 0)
+				{
+					ErrorDetail = (*ErrorArray)[0]->AsString();
+				}
+				else if ((*OutputObject)->HasField(TEXT("error")))
+				{
+					ErrorDetail = (*OutputObject)->GetStringField(TEXT("error"));
+				}
+			}
+
+			if (ErrorDetail.IsEmpty())
+			{
+				// Fallback to truncated raw JSON if no structured error found
+				ErrorDetail = PlaneToPBRHuggingFace::TruncateResponseBody(EventJson, 100);
+			}
+
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face generation failed: %s. Check your input image and prompt."), *ErrorDetail);
 			return false;
 		}
 
@@ -483,20 +524,20 @@ bool FPlaneToPBRHuggingFaceClient::TryParseQueuePollResponse(const FString& Queu
 		const TSharedPtr<FJsonObject>* OutputObject = nullptr;
 		if (!EventObject->TryGetObjectField(TEXT("output"), OutputObject) || !OutputObject || !OutputObject->IsValid())
 		{
-			OutErrorMessage = TEXT("Hugging Face completion event is missing output metadata.");
+			OutErrorMessage = TEXT("Hugging Face completion event is missing 'output' metadata. The API response format may have changed.");
 			return false;
 		}
 
 		const TArray<TSharedPtr<FJsonValue>>* OutputData = nullptr;
 		if (!(*OutputObject)->TryGetArrayField(TEXT("data"), OutputData) || !OutputData)
 		{
-			OutErrorMessage = TEXT("Hugging Face completion event is missing output data.");
+			OutErrorMessage = TEXT("Hugging Face completion event is missing 'data' array. The API response format may have changed.");
 			return false;
 		}
 
 		if (OutputData->Num() < 4)
 		{
-			OutErrorMessage = FString::Printf(TEXT("Hugging Face completion returned %d output files; expected 4."), OutputData->Num());
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face completion returned %d output files; expected 4. The API may have changed."), OutputData->Num());
 			return false;
 		}
 
@@ -507,7 +548,7 @@ bool FPlaneToPBRHuggingFaceClient::TryParseQueuePollResponse(const FString& Queu
 		return true;
 	}
 
-	OutErrorMessage = TEXT("Hugging Face queue polling finished without a completion event.");
+	OutErrorMessage = TEXT("Hugging Face queue polling finished without a completion event. The generation may have timed out or the API response format may have changed.");
 	return false;
 }
 
@@ -517,14 +558,14 @@ bool FPlaneToPBRHuggingFaceClient::TryParseOutputUrls(const FString& RawOutputJs
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(RawOutputJson);
 	if (!FJsonSerializer::Deserialize(JsonReader, OutputData))
 	{
-		OutErrorMessage = TEXT("Hugging Face output metadata returned invalid JSON.");
+		OutErrorMessage = TEXT("Hugging Face output metadata returned invalid JSON. The API response format may have changed.");
 		return false;
 	}
 
 	static const TArray<FString> TextureKeys = { TEXT("depth"), TEXT("normal"), TEXT("roughness"), TEXT("mask") };
 	if (OutputData.Num() < TextureKeys.Num())
 	{
-		OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata included %d files; expected 4."), OutputData.Num());
+		OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata included %d files; expected 4. The API may have changed."), OutputData.Num());
 		return false;
 	}
 
@@ -533,14 +574,14 @@ bool FPlaneToPBRHuggingFaceClient::TryParseOutputUrls(const FString& RawOutputJs
 		const TSharedPtr<FJsonObject> TextureObject = OutputData[TextureIndex]->AsObject();
 		if (!TextureObject.IsValid())
 		{
-			OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata for %s is invalid."), *TextureKeys[TextureIndex]);
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata for %s texture is invalid. The API response format may have changed."), *TextureKeys[TextureIndex]);
 			return false;
 		}
 
 		FString TextureUrl;
 		if (!TextureObject->TryGetStringField(TEXT("url"), TextureUrl) || TextureUrl.IsEmpty())
 		{
-			OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata for %s is missing a download URL."), *TextureKeys[TextureIndex]);
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata for %s texture is missing a download URL. The API response format may have changed."), *TextureKeys[TextureIndex]);
 			return false;
 		}
 
@@ -557,7 +598,7 @@ bool FPlaneToPBRHuggingFaceClient::TryCreateOutputDirectory(FString& OutOutputDi
 
 	if (!FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*OutOutputDirectory))
 	{
-		OutErrorMessage = FString::Printf(TEXT("Failed to create PlaneToPBR output directory: %s"), *OutOutputDirectory);
+		OutErrorMessage = FString::Printf(TEXT("Failed to create PlaneToPBR output directory: %s. Check write permissions for the Saved folder."), *OutOutputDirectory);
 		return false;
 	}
 
@@ -614,16 +655,17 @@ void FPlaneToPBRHuggingFaceClient::DownloadNextOutputTexture(
 				PlaneToPBRHuggingFace::CompleteRequest(
 					MoveTemp(CompletionCallback),
 					false,
-					FString::Printf(TEXT("Failed to download Hugging Face %s texture."), *CurrentDownload.Key));
+					FString::Printf(TEXT("Failed to connect to Hugging Face Space to download %s texture. Check your internet connection and try again."), *CurrentDownload.Key));
 				return;
 			}
 
 			if (DownloadResponse->GetResponseCode() < 200 || DownloadResponse->GetResponseCode() >= 300)
 			{
+				const FString ResponseExcerpt = PlaneToPBRHuggingFace::TruncateResponseBody(DownloadResponse->GetContentAsString());
 				PlaneToPBRHuggingFace::CompleteRequest(
 					MoveTemp(CompletionCallback),
 					false,
-					FString::Printf(TEXT("Hugging Face %s texture download failed with HTTP %d."), *CurrentDownload.Key, DownloadResponse->GetResponseCode()));
+					FString::Printf(TEXT("Hugging Face %s texture download failed (HTTP %d): %s"), *CurrentDownload.Key, DownloadResponse->GetResponseCode(), *ResponseExcerpt));
 				return;
 			}
 
@@ -633,7 +675,7 @@ void FPlaneToPBRHuggingFaceClient::DownloadNextOutputTexture(
 				PlaneToPBRHuggingFace::CompleteRequest(
 					MoveTemp(CompletionCallback),
 					false,
-					FString::Printf(TEXT("Failed to save Hugging Face %s texture to: %s"), *CurrentDownload.Key, *OutputPath));
+					FString::Printf(TEXT("Failed to save Hugging Face %s texture to: %s. Check write permissions for the output directory."), *CurrentDownload.Key, *OutputPath));
 				return;
 			}
 
@@ -646,6 +688,6 @@ void FPlaneToPBRHuggingFaceClient::DownloadNextOutputTexture(
 		PlaneToPBRHuggingFace::CompleteRequest(
 			MoveTemp(CompletionCallback),
 			false,
-			FString::Printf(TEXT("Failed to start Hugging Face %s texture download."), *CurrentDownload.Key));
+			FString::Printf(TEXT("Failed to start Hugging Face %s texture download. This is a rare internal HTTP error."), *CurrentDownload.Key));
 	}
 }
