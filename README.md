@@ -60,11 +60,15 @@ That folder is generated-only and ignored by source control.
 
 ## Hugging Face Space
 
+PlaneToPBR uses a managed Hugging Face Space. The endpoint is fixed by product design and is not configurable by users.
+
 The plugin calls:
 
 ```text
 https://ascarlettvfx-testpbr2026.hf.space
 ```
+
+When generation starts, the plugin uploads the selected source image and the optional prompt text to that managed Space. Do not use private or sensitive source images unless you are comfortable sending them to the PlaneToPBR generation service.
 
 The expected Gradio API route is:
 
@@ -79,6 +83,13 @@ depth, normal, roughness, mask
 ```
 
 The source image is used as the diffuse map.
+
+Common service failure cases:
+
+- If the Space is sleeping or unavailable, generation may fail with an HTTP error or a connection message. Wait briefly and try again.
+- If the network is unavailable, the plugin reports that it failed to connect to Hugging Face.
+- If the selected input image cannot be processed, the Space may return a generation failure. Try a different image or prompt.
+- If the managed Space API changes unexpectedly, the plugin may report invalid JSON, missing fields, or missing output URLs.
 
 ## Packaging
 
