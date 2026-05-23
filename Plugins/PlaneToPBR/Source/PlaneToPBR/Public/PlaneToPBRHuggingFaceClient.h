@@ -21,6 +21,8 @@ using FPlaneToPBRHuggingFaceCallback = TFunction<void(const FPlaneToPBRHuggingFa
 class PLANETOPBR_API FPlaneToPBRHuggingFaceClient
 {
 public:
+	static bool DidQueuePollReachTimeout(double ElapsedSeconds, double TimeoutSeconds);
+
 	void GeneratePBRTexturesAsync(
 		const FPlaneToPBRHuggingFaceRequest& Request,
 		FPlaneToPBRHuggingFaceCallback CompletionCallback);

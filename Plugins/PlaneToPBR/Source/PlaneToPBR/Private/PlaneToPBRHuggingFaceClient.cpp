@@ -16,6 +16,7 @@ namespace PlaneToPBRHuggingFace
 {
 	const FString SpaceBaseUrl = TEXT("https://ascarlettvfx-testpbr2026.hf.space");
 	const FString PredictApiName = TEXT("predict");
+	const float GenerationTimeoutSeconds = 300.0f;
 
 	FString TruncateResponseBody(const FString& ResponseBody, int32 MaxLength = 150)
 	{
@@ -54,6 +55,11 @@ namespace PlaneToPBRHuggingFace
 			CompletionCallback(Result);
 		});
 	}
+}
+
+bool FPlaneToPBRHuggingFaceClient::DidQueuePollReachTimeout(const double ElapsedSeconds, const double TimeoutSeconds)
+{
+	return TimeoutSeconds > 0.0 && ElapsedSeconds >= TimeoutSeconds - 1.0;
 }
 
 void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
@@ -196,14 +202,22 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 							const TSharedRef<IHttpRequest> QueuePollRequest = FHttpModule::Get().CreateRequest();
 							QueuePollRequest->SetURL(PlaneToPBRHuggingFace::SpaceBaseUrl / TEXT("gradio_api/queue/data?session_hash=") + SessionHash);
 							QueuePollRequest->SetVerb(TEXT("GET"));
+							QueuePollRequest->SetTimeout(PlaneToPBRHuggingFace::GenerationTimeoutSeconds);
 							QueuePollRequest->OnProcessRequestComplete().BindLambda(
-								[CompletionCallback = MoveTemp(CompletionCallback)](
+								[CompletionCallback = MoveTemp(CompletionCallback), QueuePollStartTime = FPlatformTime::Seconds()](
 									FHttpRequestPtr QueuePollRequestPtr,
 									FHttpResponsePtr QueuePollResponse,
 									bool bQueuePollConnectedSuccessfully) mutable
 								{
 									if (!bQueuePollConnectedSuccessfully || !QueuePollResponse.IsValid())
 									{
+										const double ElapsedSeconds = FPlatformTime::Seconds() - QueuePollStartTime;
+										if (DidQueuePollReachTimeout(ElapsedSeconds, PlaneToPBRHuggingFace::GenerationTimeoutSeconds))
+										{
+											PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Hugging Face generation timed out after 5 minutes. The Space may be busy or asleep; try again."));
+											return;
+										}
+
 										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Failed to connect to Hugging Face Space to poll generation queue. Check your internet connection and try again."));
 										return;
 									}
