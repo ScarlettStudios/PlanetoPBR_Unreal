@@ -3,6 +3,7 @@
 #include "Modules/ModuleManager.h"
 
 class SEditableTextBox;
+class SButton;
 class SDockTab;
 class STextBlock;
 
@@ -28,6 +29,8 @@ private:
 	TSharedRef<SDockTab> SpawnPlaneToPBRTab(const class FSpawnTabArgs& SpawnTabArgs);
 
 	FPlaneToPBRWorkflowState WorkflowState;
+	bool bGenerationInProgress = false;
 	TSharedPtr<SEditableTextBox> ImagePathTextBox;
+	TSharedPtr<SButton> GenerateButton;
 	TSharedPtr<STextBlock> StatusTextBlock;
 };
