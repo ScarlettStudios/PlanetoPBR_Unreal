@@ -1,6 +1,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/UniquePtr.h"
+
+class FPlaneToPBRHuggingFaceRequestBuilder;
+class FPlaneToPBRHuggingFaceResponseParser;
 
 struct FPlaneToPBRHuggingFaceRequest
 {
@@ -21,7 +25,14 @@ using FPlaneToPBRHuggingFaceCallback = TFunction<void(const FPlaneToPBRHuggingFa
 class PLANETOPBR_API FPlaneToPBRHuggingFaceClient
 {
 public:
+	FPlaneToPBRHuggingFaceClient();
+	~FPlaneToPBRHuggingFaceClient();
+
 	void GeneratePBRTexturesAsync(
 		const FPlaneToPBRHuggingFaceRequest& Request,
 		FPlaneToPBRHuggingFaceCallback CompletionCallback);
+
+private:
+	TUniquePtr<FPlaneToPBRHuggingFaceRequestBuilder> RequestBuilder;
+	TUniquePtr<FPlaneToPBRHuggingFaceResponseParser> ResponseParser;
 };
