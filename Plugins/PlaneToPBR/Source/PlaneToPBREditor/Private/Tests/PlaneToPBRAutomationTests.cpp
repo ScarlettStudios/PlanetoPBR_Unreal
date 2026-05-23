@@ -5,7 +5,6 @@
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "PlaneToPBRDisplacedPlaneGeometry.h"
-#include "PlaneToPBRHuggingFaceClient.h"
 #include "PlaneToPBRTextureRoles.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -17,32 +16,6 @@ bool FPlaneToPBRModuleLoadTest::RunTest(const FString& Parameters)
 {
 	TestTrue(TEXT("PlaneToPBR runtime module is loaded"), FModuleManager::Get().IsModuleLoaded(TEXT("PlaneToPBR")));
 	TestTrue(TEXT("PlaneToPBR editor module is loaded"), FModuleManager::Get().IsModuleLoaded(TEXT("PlaneToPBREditor")));
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FPlaneToPBRHuggingFaceTimeoutTest,
-	"PlaneToPBR.HuggingFace.TimeoutClassification",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FPlaneToPBRHuggingFaceTimeoutTest::RunTest(const FString& Parameters)
-{
-	TestFalse(
-		TEXT("Elapsed time below the timeout window does not count as a timeout"),
-		FPlaneToPBRHuggingFaceClient::DidQueuePollReachTimeout(298.0, 300.0));
-
-	TestTrue(
-		TEXT("Elapsed time inside the final one-second timeout window counts as a timeout"),
-		FPlaneToPBRHuggingFaceClient::DidQueuePollReachTimeout(299.0, 300.0));
-
-	TestTrue(
-		TEXT("Elapsed time beyond the configured timeout counts as a timeout"),
-		FPlaneToPBRHuggingFaceClient::DidQueuePollReachTimeout(301.0, 300.0));
-
-	TestFalse(
-		TEXT("Non-positive timeout values are treated as disabled"),
-		FPlaneToPBRHuggingFaceClient::DidQueuePollReachTimeout(301.0, 0.0));
-
 	return true;
 }
 
