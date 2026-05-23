@@ -94,17 +94,34 @@ FReply FPlaneToPBREditorModule::BrowseForImage()
 
 FReply FPlaneToPBREditorModule::GeneratePBRPlane()
 {
+	if (bGenerationInProgress)
+	{
+		if (StatusTextBlock.IsValid())
+		{
+			StatusTextBlock->SetText(LOCTEXT("GenerationAlreadyInProgressStatus", "PlaneToPBR generation is already running..."));
+		}
+		return FReply::Handled();
+	}
+
 	FPlaneToPBRHuggingFaceRequest Request;
 	Request.ImagePath = WorkflowState.ImagePath.TrimStartAndEnd();
 	Request.HFPrompt = WorkflowState.HFPrompt.TrimStartAndEnd();
+	const FString SourceImagePath = Request.ImagePath;
+
+	bGenerationInProgress = true;
+	if (StatusTextBlock.IsValid())
+	{
+		StatusTextBlock->SetText(LOCTEXT("GeneratingTexturesStatus", "Uploading image, generating maps, and downloading textures..."));
+	}
 
 	FPlaneToPBRHuggingFaceClient Client;
-	Client.GeneratePBRTexturesAsync(Request, [this, WeakStatusTextBlock = TWeakPtr<STextBlock>(StatusTextBlock)](const FPlaneToPBRHuggingFaceResult& Result)
+	Client.GeneratePBRTexturesAsync(Request, [this, WeakStatusTextBlock = TWeakPtr<STextBlock>(StatusTextBlock), SourceImagePath](const FPlaneToPBRHuggingFaceResult& Result)
 	{
 		if (const TSharedPtr<STextBlock> PinnedStatusTextBlock = WeakStatusTextBlock.Pin())
 		{
 			if (!Result.bSucceeded)
 			{
+				bGenerationInProgress = false;
 				PinnedStatusTextBlock->SetText(FText::FromString(Result.Message));
 				return;
 			}
@@ -112,7 +129,7 @@ FReply FPlaneToPBREditorModule::GeneratePBRPlane()
 			PinnedStatusTextBlock->SetText(LOCTEXT("ImportingTexturesStatus", "Importing PlaneToPBR textures..."));
 
 			FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
-				[this, WeakStatusTextBlock, TexturePaths = Result.TexturePaths, SourceImagePath = WorkflowState.ImagePath.TrimStartAndEnd()](float DeltaTime)
+				[this, WeakStatusTextBlock, TexturePaths = Result.TexturePaths, SourceImagePath](float DeltaTime)
 				{
 					if (const TSharedPtr<STextBlock> DeferredStatusTextBlock = WeakStatusTextBlock.Pin())
 					{
@@ -121,32 +138,48 @@ FReply FPlaneToPBREditorModule::GeneratePBRPlane()
 						FString ImportErrorMessage;
 						if (!FPlaneToPBRTextureImporter::ImportDownloadedTextures(TexturePaths, SourceImagePath, ContentPath, TextureAssetPaths, ImportErrorMessage))
 						{
+							bGenerationInProgress = false;
 							DeferredStatusTextBlock->SetText(FText::FromString(ImportErrorMessage));
 							return false;
 						}
+
+						DeferredStatusTextBlock->SetText(LOCTEXT("CreatingMaterialStatus", "Creating PlaneToPBR material..."));
 
 						FString MaterialPath;
 						UMaterialInterface* GeneratedMaterial = nullptr;
 						FString MaterialErrorMessage;
 						if (!FPlaneToPBRMaterialBuilder::CreateGeneratedMaterial(ContentPath, TextureAssetPaths, MaterialPath, GeneratedMaterial, MaterialErrorMessage))
 						{
+							bGenerationInProgress = false;
 							DeferredStatusTextBlock->SetText(FText::FromString(MaterialErrorMessage));
 							return false;
 						}
+
+						DeferredStatusTextBlock->SetText(LOCTEXT("CreatingPlaneStatus", "Creating PlaneToPBR displaced plane..."));
 
 						FString ActorLabel;
 						FString ActorErrorMessage;
 						if (!FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(ContentPath, GeneratedMaterial, TexturePaths, ActorLabel, ActorErrorMessage))
 						{
+							bGenerationInProgress = false;
 							DeferredStatusTextBlock->SetText(FText::FromString(ActorErrorMessage));
 							return false;
 						}
 
+						bGenerationInProgress = false;
 						DeferredStatusTextBlock->SetText(FText::FromString(FString::Printf(TEXT("Created PlaneToPBR displaced plane: %s"), *ActorLabel)));
+					}
+					else
+					{
+						bGenerationInProgress = false;
 					}
 
 					return false;
 				}));
+		}
+		else
+		{
+			bGenerationInProgress = false;
 		}
 	});
 
@@ -235,9 +268,13 @@ TSharedRef<SDockTab> FPlaneToPBREditorModule::SpawnPlaneToPBRTab(const FSpawnTab
 					SNew(SBox)
 					.WidthOverride(440.0f)
 					[
-						SNew(SButton)
+						SAssignNew(GenerateButton, SButton)
 						.HAlign(HAlign_Center)
 						.Text(LOCTEXT("GeneratePBRPlaneButton", "Generate PBR Plane"))
+						.IsEnabled_Lambda([this]()
+						{
+							return !bGenerationInProgress;
+						})
 						.OnClicked_Raw(this, &FPlaneToPBREditorModule::GeneratePBRPlane)
 					]
 				]
