@@ -1,15 +1,14 @@
-#include "PlaneToPBRHuggingFaceProtocol.h"
+#include "PlaneToPBRHuggingFaceResponseParser.h"
 
-#include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
-namespace PlaneToPBRHuggingFaceProtocol
+namespace PlaneToPBRHuggingFaceResponseParser
 {
 	const FString PredictApiName = TEXT("predict");
 }
 
-FString FPlaneToPBRHuggingFaceProtocol::TruncateResponseBody(const FString& ResponseBody, const int32 MaxLength)
+FString FPlaneToPBRHuggingFaceResponseParser::TruncateResponseBody(const FString& ResponseBody, const int32 MaxLength) const
 {
 	if (ResponseBody.IsEmpty())
 	{
@@ -24,13 +23,15 @@ FString FPlaneToPBRHuggingFaceProtocol::TruncateResponseBody(const FString& Resp
 	return ResponseBody.Left(MaxLength) + TEXT("...");
 }
 
-bool FPlaneToPBRHuggingFaceProtocol::DidQueuePollReachTimeout(const double ElapsedSeconds, const double TimeoutSeconds)
+bool FPlaneToPBRHuggingFaceResponseParser::DidQueuePollReachTimeout(const double ElapsedSeconds, const double TimeoutSeconds) const
 {
 	return TimeoutSeconds > 0.0 && ElapsedSeconds >= TimeoutSeconds - 1.0;
 }
 
-bool FPlaneToPBRHuggingFaceProtocol::ResolvePredictFunctionIndex(const FString& ConfigJson, int32& OutFunctionIndex, FString& OutErrorMessage)
+bool FPlaneToPBRHuggingFaceResponseParser::ResolvePredictFunctionIndex(const FString& ConfigJson, int32& OutFunctionIndex, FString& OutErrorMessage) const
 {
+	OutFunctionIndex = INDEX_NONE;
+
 	TSharedPtr<FJsonObject> ConfigObject;
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(ConfigJson);
 	if (!FJsonSerializer::Deserialize(JsonReader, ConfigObject) || !ConfigObject.IsValid())
@@ -48,6 +49,11 @@ bool FPlaneToPBRHuggingFaceProtocol::ResolvePredictFunctionIndex(const FString& 
 
 	for (int32 DependencyIndex = 0; DependencyIndex < Dependencies->Num(); ++DependencyIndex)
 	{
+		if (!(*Dependencies)[DependencyIndex].IsValid())
+		{
+			continue;
+		}
+
 		const TSharedPtr<FJsonObject> DependencyObject = (*Dependencies)[DependencyIndex]->AsObject();
 		if (!DependencyObject.IsValid())
 		{
@@ -55,7 +61,7 @@ bool FPlaneToPBRHuggingFaceProtocol::ResolvePredictFunctionIndex(const FString& 
 		}
 
 		FString ApiName;
-		if (DependencyObject->TryGetStringField(TEXT("api_name"), ApiName) && ApiName == PlaneToPBRHuggingFaceProtocol::PredictApiName)
+		if (DependencyObject->TryGetStringField(TEXT("api_name"), ApiName) && ApiName == PlaneToPBRHuggingFaceResponseParser::PredictApiName)
 		{
 			OutFunctionIndex = DependencyIndex;
 			return true;
@@ -66,52 +72,10 @@ bool FPlaneToPBRHuggingFaceProtocol::ResolvePredictFunctionIndex(const FString& 
 	return false;
 }
 
-FString FPlaneToPBRHuggingFaceProtocol::GetMimeTypeForImagePath(const FString& ImagePath)
+bool FPlaneToPBRHuggingFaceResponseParser::TryParseUploadPath(const FString& UploadJson, FString& OutUploadedPath, FString& OutErrorMessage) const
 {
-	const FString Extension = FPaths::GetExtension(ImagePath).ToLower();
-	if (Extension == TEXT("jpg") || Extension == TEXT("jpeg"))
-	{
-		return TEXT("image/jpeg");
-	}
+	OutUploadedPath.Empty();
 
-	if (Extension == TEXT("exr"))
-	{
-		return TEXT("image/x-exr");
-	}
-
-	if (Extension == TEXT("png"))
-	{
-		return TEXT("image/png");
-	}
-
-	return TEXT("application/octet-stream");
-}
-
-TArray<uint8> FPlaneToPBRHuggingFaceProtocol::BuildMultipartUploadBody(
-	const FString& Boundary,
-	const FString& FileName,
-	const FString& MimeType,
-	const TArray<uint8>& ImageBytes)
-{
-	const FString Header = FString::Printf(
-		TEXT("--%s\r\nContent-Disposition: form-data; name=\"files\"; filename=\"%s\"\r\nContent-Type: %s\r\n\r\n"),
-		*Boundary,
-		*FileName,
-		*MimeType);
-	const FString Footer = FString::Printf(TEXT("\r\n--%s--\r\n"), *Boundary);
-
-	TArray<uint8> Body;
-	FTCHARToUTF8 HeaderUtf8(*Header);
-	Body.Append(reinterpret_cast<const uint8*>(HeaderUtf8.Get()), HeaderUtf8.Length());
-	Body.Append(ImageBytes);
-	FTCHARToUTF8 FooterUtf8(*Footer);
-	Body.Append(reinterpret_cast<const uint8*>(FooterUtf8.Get()), FooterUtf8.Length());
-
-	return Body;
-}
-
-bool FPlaneToPBRHuggingFaceProtocol::TryParseUploadPath(const FString& UploadJson, FString& OutUploadedPath, FString& OutErrorMessage)
-{
 	TArray<TSharedPtr<FJsonValue>> UploadResponseArray;
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(UploadJson);
 	if (!FJsonSerializer::Deserialize(JsonReader, UploadResponseArray))
@@ -126,6 +90,12 @@ bool FPlaneToPBRHuggingFaceProtocol::TryParseUploadPath(const FString& UploadJso
 		return false;
 	}
 
+	if (UploadResponseArray[0]->Type != EJson::String)
+	{
+		OutErrorMessage = TEXT("Hugging Face upload response did not include a string uploaded path. The API response format may have changed.");
+		return false;
+	}
+
 	OutUploadedPath = UploadResponseArray[0]->AsString();
 	if (OutUploadedPath.IsEmpty())
 	{
@@ -136,39 +106,10 @@ bool FPlaneToPBRHuggingFaceProtocol::TryParseUploadPath(const FString& UploadJso
 	return true;
 }
 
-FString FPlaneToPBRHuggingFaceProtocol::BuildQueueJoinPayload(
-	const FString& UploadedPath,
-	const FString& OriginalFileName,
-	const int32 ImageSizeBytes,
-	const FString& MimeType,
-	const FString& HFPrompt,
-	const int32 PredictFunctionIndex,
-	const FString& SessionHash)
+bool FPlaneToPBRHuggingFaceResponseParser::TryParseQueueEventId(const FString& QueueJoinJson, FString& OutEventId, FString& OutErrorMessage) const
 {
-	const TSharedRef<FJsonObject> ImageObject = MakeShared<FJsonObject>();
-	ImageObject->SetStringField(TEXT("path"), UploadedPath);
-	ImageObject->SetStringField(TEXT("orig_name"), OriginalFileName);
-	ImageObject->SetNumberField(TEXT("size"), ImageSizeBytes);
-	ImageObject->SetStringField(TEXT("mime_type"), MimeType);
+	OutEventId.Empty();
 
-	TArray<TSharedPtr<FJsonValue>> DataValues;
-	DataValues.Add(MakeShared<FJsonValueObject>(ImageObject));
-	DataValues.Add(MakeShared<FJsonValueString>(HFPrompt));
-
-	const TSharedRef<FJsonObject> PayloadObject = MakeShared<FJsonObject>();
-	PayloadObject->SetArrayField(TEXT("data"), DataValues);
-	PayloadObject->SetField(TEXT("event_data"), MakeShared<FJsonValueNull>());
-	PayloadObject->SetNumberField(TEXT("fn_index"), PredictFunctionIndex);
-	PayloadObject->SetStringField(TEXT("session_hash"), SessionHash);
-
-	FString SerializedPayload;
-	const TSharedRef<TJsonWriter<>> JsonWriter = TJsonWriterFactory<>::Create(&SerializedPayload);
-	FJsonSerializer::Serialize(PayloadObject, JsonWriter);
-	return SerializedPayload;
-}
-
-bool FPlaneToPBRHuggingFaceProtocol::TryParseQueueEventId(const FString& QueueJoinJson, FString& OutEventId, FString& OutErrorMessage)
-{
 	TSharedPtr<FJsonObject> QueueJoinObject;
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(QueueJoinJson);
 	if (!FJsonSerializer::Deserialize(JsonReader, QueueJoinObject) || !QueueJoinObject.IsValid())
@@ -186,8 +127,10 @@ bool FPlaneToPBRHuggingFaceProtocol::TryParseQueueEventId(const FString& QueueJo
 	return true;
 }
 
-bool FPlaneToPBRHuggingFaceProtocol::TryParseQueuePollResponse(const FString& QueuePollText, FString& OutRawOutputJson, FString& OutErrorMessage)
+bool FPlaneToPBRHuggingFaceResponseParser::TryParseQueuePollResponse(const FString& QueuePollText, FString& OutRawOutputJson, FString& OutErrorMessage) const
 {
+	OutRawOutputJson.Empty();
+
 	TArray<FString> Lines;
 	QueuePollText.ParseIntoArrayLines(Lines);
 
@@ -226,13 +169,17 @@ bool FPlaneToPBRHuggingFaceProtocol::TryParseQueuePollResponse(const FString& Qu
 			if (EventObject->TryGetObjectField(TEXT("output"), OutputObject) && OutputObject && OutputObject->IsValid())
 			{
 				const TArray<TSharedPtr<FJsonValue>>* ErrorArray = nullptr;
-				if ((*OutputObject)->TryGetArrayField(TEXT("error"), ErrorArray) && ErrorArray && ErrorArray->Num() > 0)
+				if ((*OutputObject)->TryGetArrayField(TEXT("error"), ErrorArray) &&
+					ErrorArray &&
+					ErrorArray->Num() > 0 &&
+					(*ErrorArray)[0].IsValid() &&
+					(*ErrorArray)[0]->Type == EJson::String)
 				{
 					ErrorDetail = (*ErrorArray)[0]->AsString();
 				}
 				else if ((*OutputObject)->HasField(TEXT("error")))
 				{
-					ErrorDetail = (*OutputObject)->GetStringField(TEXT("error"));
+					(*OutputObject)->TryGetStringField(TEXT("error"), ErrorDetail);
 				}
 			}
 
@@ -281,8 +228,10 @@ bool FPlaneToPBRHuggingFaceProtocol::TryParseQueuePollResponse(const FString& Qu
 	return false;
 }
 
-bool FPlaneToPBRHuggingFaceProtocol::TryParseOutputUrls(const FString& RawOutputJson, TMap<FString, FString>& OutTextureUrls, FString& OutErrorMessage)
+bool FPlaneToPBRHuggingFaceResponseParser::TryParseOutputUrls(const FString& RawOutputJson, TMap<FString, FString>& OutTextureUrls, FString& OutErrorMessage) const
 {
+	OutTextureUrls.Empty();
+
 	TArray<TSharedPtr<FJsonValue>> OutputData;
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(RawOutputJson);
 	if (!FJsonSerializer::Deserialize(JsonReader, OutputData))
@@ -298,8 +247,15 @@ bool FPlaneToPBRHuggingFaceProtocol::TryParseOutputUrls(const FString& RawOutput
 		return false;
 	}
 
+	TMap<FString, FString> ParsedTextureUrls;
 	for (int32 TextureIndex = 0; TextureIndex < TextureKeys.Num(); ++TextureIndex)
 	{
+		if (!OutputData[TextureIndex].IsValid())
+		{
+			OutErrorMessage = FString::Printf(TEXT("Hugging Face output metadata for %s texture is invalid. The API response format may have changed."), *TextureKeys[TextureIndex]);
+			return false;
+		}
+
 		const TSharedPtr<FJsonObject> TextureObject = OutputData[TextureIndex]->AsObject();
 		if (!TextureObject.IsValid())
 		{
@@ -314,8 +270,9 @@ bool FPlaneToPBRHuggingFaceProtocol::TryParseOutputUrls(const FString& RawOutput
 			return false;
 		}
 
-		OutTextureUrls.Add(TextureKeys[TextureIndex], TextureUrl);
+		ParsedTextureUrls.Add(TextureKeys[TextureIndex], TextureUrl);
 	}
 
+	OutTextureUrls = MoveTemp(ParsedTextureUrls);
 	return true;
 }

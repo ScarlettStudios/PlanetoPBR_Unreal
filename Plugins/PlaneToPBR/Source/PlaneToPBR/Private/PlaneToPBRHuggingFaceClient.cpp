@@ -9,7 +9,8 @@
 #include "Misc/Guid.h"
 #include "Misc/Paths.h"
 #include "Misc/DateTime.h"
-#include "PlaneToPBRHuggingFaceProtocol.h"
+#include "PlaneToPBRHuggingFaceRequestBuilder.h"
+#include "PlaneToPBRHuggingFaceResponseParser.h"
 
 namespace PlaneToPBRHuggingFace
 {
@@ -19,11 +20,13 @@ namespace PlaneToPBRHuggingFace
 	void DownloadOutputTextures(
 		const TMap<FString, FString>& TextureUrls,
 		const FString& OutputDirectory,
+		const FPlaneToPBRHuggingFaceResponseParser& ResponseParser,
 		FPlaneToPBRHuggingFaceCallback CompletionCallback);
 	void DownloadNextOutputTexture(
 		TArray<TPair<FString, FString>> PendingDownloads,
 		TMap<FString, FString> DownloadedTexturePaths,
 		const FString& OutputDirectory,
+		FPlaneToPBRHuggingFaceResponseParser ResponseParser,
 		FPlaneToPBRHuggingFaceCallback CompletionCallback);
 
 	void CompleteRequest(
@@ -93,6 +96,14 @@ namespace PlaneToPBRHuggingFace
 	}
 }
 
+FPlaneToPBRHuggingFaceClient::FPlaneToPBRHuggingFaceClient()
+	: RequestBuilder(MakeUnique<FPlaneToPBRHuggingFaceRequestBuilder>())
+	, ResponseParser(MakeUnique<FPlaneToPBRHuggingFaceResponseParser>())
+{
+}
+
+FPlaneToPBRHuggingFaceClient::~FPlaneToPBRHuggingFaceClient() = default;
+
 void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 	const FPlaneToPBRHuggingFaceRequest& Request,
 	FPlaneToPBRHuggingFaceCallback CompletionCallback)
@@ -104,12 +115,15 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 		return;
 	}
 
+	const FPlaneToPBRHuggingFaceRequestBuilder RequestBuilderSnapshot = *RequestBuilder;
+	const FPlaneToPBRHuggingFaceResponseParser ResponseParserSnapshot = *ResponseParser;
+
 	const TSharedRef<IHttpRequest> ConfigRequest = FHttpModule::Get().CreateRequest();
 	ConfigRequest->SetURL(PlaneToPBRHuggingFace::SpaceBaseUrl / TEXT("config"));
 	ConfigRequest->SetVerb(TEXT("GET"));
 	ConfigRequest->OnProcessRequestComplete().BindLambda(
-		[Request, CompletionCallback = MoveTemp(CompletionCallback)](
-			FHttpRequestPtr RequestPtr,
+		[Request, RequestBuilder = RequestBuilderSnapshot, ResponseParser = ResponseParserSnapshot, CompletionCallback = MoveTemp(CompletionCallback)](
+			FHttpRequestPtr,
 			FHttpResponsePtr Response,
 			bool bConnectedSuccessfully) mutable
 		{
@@ -121,7 +135,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 			if (Response->GetResponseCode() < 200 || Response->GetResponseCode() >= 300)
 			{
-				const FString ResponseExcerpt = FPlaneToPBRHuggingFaceProtocol::TruncateResponseBody(Response->GetContentAsString());
+				const FString ResponseExcerpt = ResponseParser.TruncateResponseBody(Response->GetContentAsString());
 				PlaneToPBRHuggingFace::CompleteRequest(
 					MoveTemp(CompletionCallback),
 					false,
@@ -131,7 +145,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 			int32 PredictFunctionIndex = INDEX_NONE;
 			FString ResolveErrorMessage;
-			if (!FPlaneToPBRHuggingFaceProtocol::ResolvePredictFunctionIndex(Response->GetContentAsString(), PredictFunctionIndex, ResolveErrorMessage))
+			if (!ResponseParser.ResolvePredictFunctionIndex(Response->GetContentAsString(), PredictFunctionIndex, ResolveErrorMessage))
 			{
 				PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, ResolveErrorMessage);
 				return;
@@ -147,8 +161,8 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 			const FString Boundary = TEXT("----Boundary") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
 			const FString FileName = FPaths::GetCleanFilename(Request.ImagePath);
-			const FString MimeType = FPlaneToPBRHuggingFaceProtocol::GetMimeTypeForImagePath(Request.ImagePath);
-			const TArray<uint8> UploadBody = FPlaneToPBRHuggingFaceProtocol::BuildMultipartUploadBody(Boundary, FileName, MimeType, ImageBytes);
+			const FString MimeType = RequestBuilder.GetMimeTypeForImagePath(Request.ImagePath);
+			const TArray<uint8> UploadBody = RequestBuilder.BuildMultipartUploadBody(Boundary, FileName, MimeType, ImageBytes);
 
 			const TSharedRef<IHttpRequest> UploadRequest = FHttpModule::Get().CreateRequest();
 			UploadRequest->SetURL(PlaneToPBRHuggingFace::SpaceBaseUrl / TEXT("gradio_api/upload"));
@@ -156,8 +170,8 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 			UploadRequest->SetHeader(TEXT("Content-Type"), FString::Printf(TEXT("multipart/form-data; boundary=%s"), *Boundary));
 			UploadRequest->SetContent(UploadBody);
 			UploadRequest->OnProcessRequestComplete().BindLambda(
-				[Request, PredictFunctionIndex, ImageSizeBytes = ImageBytes.Num(), FileName, MimeType, CompletionCallback = MoveTemp(CompletionCallback)](
-					FHttpRequestPtr UploadRequestPtr,
+				[Request, RequestBuilder, ResponseParser, PredictFunctionIndex, ImageSizeBytes = ImageBytes.Num(), FileName, MimeType, CompletionCallback = MoveTemp(CompletionCallback)](
+					FHttpRequestPtr,
 					FHttpResponsePtr UploadResponse,
 					bool bUploadConnectedSuccessfully) mutable
 				{
@@ -169,7 +183,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 					if (UploadResponse->GetResponseCode() < 200 || UploadResponse->GetResponseCode() >= 300)
 					{
-						const FString ResponseExcerpt = FPlaneToPBRHuggingFaceProtocol::TruncateResponseBody(UploadResponse->GetContentAsString());
+						const FString ResponseExcerpt = ResponseParser.TruncateResponseBody(UploadResponse->GetContentAsString());
 						PlaneToPBRHuggingFace::CompleteRequest(
 							MoveTemp(CompletionCallback),
 							false,
@@ -179,14 +193,14 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 					FString UploadedPath;
 					FString UploadParseErrorMessage;
-					if (!FPlaneToPBRHuggingFaceProtocol::TryParseUploadPath(UploadResponse->GetContentAsString(), UploadedPath, UploadParseErrorMessage))
+					if (!ResponseParser.TryParseUploadPath(UploadResponse->GetContentAsString(), UploadedPath, UploadParseErrorMessage))
 					{
 						PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, UploadParseErrorMessage);
 						return;
 					}
 
 					const FString SessionHash = FGuid::NewGuid().ToString(EGuidFormats::Digits);
-					const FString QueueJoinPayload = FPlaneToPBRHuggingFaceProtocol::BuildQueueJoinPayload(
+					const FString QueueJoinPayload = RequestBuilder.BuildQueueJoinPayload(
 						UploadedPath,
 						FileName,
 						ImageSizeBytes,
@@ -201,8 +215,8 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 					QueueJoinRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 					QueueJoinRequest->SetContentAsString(QueueJoinPayload);
 					QueueJoinRequest->OnProcessRequestComplete().BindLambda(
-						[CompletionCallback = MoveTemp(CompletionCallback), SessionHash](
-							FHttpRequestPtr QueueJoinRequestPtr,
+						[ResponseParser, CompletionCallback = MoveTemp(CompletionCallback), SessionHash](
+							FHttpRequestPtr,
 							FHttpResponsePtr QueueJoinResponse,
 							bool bQueueJoinConnectedSuccessfully) mutable
 						{
@@ -214,7 +228,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 							if (QueueJoinResponse->GetResponseCode() < 200 || QueueJoinResponse->GetResponseCode() >= 300)
 							{
-								const FString ResponseExcerpt = FPlaneToPBRHuggingFaceProtocol::TruncateResponseBody(QueueJoinResponse->GetContentAsString());
+								const FString ResponseExcerpt = ResponseParser.TruncateResponseBody(QueueJoinResponse->GetContentAsString());
 								PlaneToPBRHuggingFace::CompleteRequest(
 									MoveTemp(CompletionCallback),
 									false,
@@ -224,7 +238,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 							FString EventId;
 							FString QueueParseErrorMessage;
-							if (!FPlaneToPBRHuggingFaceProtocol::TryParseQueueEventId(QueueJoinResponse->GetContentAsString(), EventId, QueueParseErrorMessage))
+							if (!ResponseParser.TryParseQueueEventId(QueueJoinResponse->GetContentAsString(), EventId, QueueParseErrorMessage))
 							{
 								PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, QueueParseErrorMessage);
 								return;
@@ -235,15 +249,15 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 							QueuePollRequest->SetVerb(TEXT("GET"));
 							QueuePollRequest->SetTimeout(PlaneToPBRHuggingFace::GenerationTimeoutSeconds);
 							QueuePollRequest->OnProcessRequestComplete().BindLambda(
-								[CompletionCallback = MoveTemp(CompletionCallback), QueuePollStartTime = FPlatformTime::Seconds()](
-									FHttpRequestPtr QueuePollRequestPtr,
+								[ResponseParser, CompletionCallback = MoveTemp(CompletionCallback), QueuePollStartTime = FPlatformTime::Seconds()](
+									FHttpRequestPtr,
 									FHttpResponsePtr QueuePollResponse,
 									bool bQueuePollConnectedSuccessfully) mutable
 								{
 									if (!bQueuePollConnectedSuccessfully || !QueuePollResponse.IsValid())
 									{
 										const double ElapsedSeconds = FPlatformTime::Seconds() - QueuePollStartTime;
-										if (FPlaneToPBRHuggingFaceProtocol::DidQueuePollReachTimeout(ElapsedSeconds, PlaneToPBRHuggingFace::GenerationTimeoutSeconds))
+										if (ResponseParser.DidQueuePollReachTimeout(ElapsedSeconds, PlaneToPBRHuggingFace::GenerationTimeoutSeconds))
 										{
 											PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, TEXT("Hugging Face generation timed out after 5 minutes. The Space may be busy or asleep; try again."));
 											return;
@@ -255,7 +269,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 									if (QueuePollResponse->GetResponseCode() < 200 || QueuePollResponse->GetResponseCode() >= 300)
 									{
-										const FString ResponseExcerpt = FPlaneToPBRHuggingFaceProtocol::TruncateResponseBody(QueuePollResponse->GetContentAsString());
+										const FString ResponseExcerpt = ResponseParser.TruncateResponseBody(QueuePollResponse->GetContentAsString());
 										PlaneToPBRHuggingFace::CompleteRequest(
 											MoveTemp(CompletionCallback),
 											false,
@@ -265,7 +279,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 									FString RawOutputJson;
 									FString QueuePollErrorMessage;
-									if (!FPlaneToPBRHuggingFaceProtocol::TryParseQueuePollResponse(QueuePollResponse->GetContentAsString(), RawOutputJson, QueuePollErrorMessage))
+									if (!ResponseParser.TryParseQueuePollResponse(QueuePollResponse->GetContentAsString(), RawOutputJson, QueuePollErrorMessage))
 									{
 										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, QueuePollErrorMessage);
 										return;
@@ -273,7 +287,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 
 									TMap<FString, FString> TextureUrls;
 									FString OutputUrlErrorMessage;
-									if (!FPlaneToPBRHuggingFaceProtocol::TryParseOutputUrls(RawOutputJson, TextureUrls, OutputUrlErrorMessage))
+									if (!ResponseParser.TryParseOutputUrls(RawOutputJson, TextureUrls, OutputUrlErrorMessage))
 									{
 										PlaneToPBRHuggingFace::CompleteRequest(MoveTemp(CompletionCallback), false, OutputUrlErrorMessage, RawOutputJson);
 										return;
@@ -287,7 +301,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 										return;
 									}
 
-									PlaneToPBRHuggingFace::DownloadOutputTextures(TextureUrls, OutputDirectory, MoveTemp(CompletionCallback));
+									PlaneToPBRHuggingFace::DownloadOutputTextures(TextureUrls, OutputDirectory, ResponseParser, MoveTemp(CompletionCallback));
 								});
 
 							if (!QueuePollRequest->ProcessRequest())
@@ -317,6 +331,7 @@ void FPlaneToPBRHuggingFaceClient::GeneratePBRTexturesAsync(
 void PlaneToPBRHuggingFace::DownloadOutputTextures(
 	const TMap<FString, FString>& TextureUrls,
 	const FString& OutputDirectory,
+	const FPlaneToPBRHuggingFaceResponseParser& ResponseParser,
 	FPlaneToPBRHuggingFaceCallback CompletionCallback)
 {
 	TArray<TPair<FString, FString>> PendingDownloads;
@@ -325,13 +340,14 @@ void PlaneToPBRHuggingFace::DownloadOutputTextures(
 		PendingDownloads.Add(TextureUrl);
 	}
 
-	PlaneToPBRHuggingFace::DownloadNextOutputTexture(MoveTemp(PendingDownloads), TMap<FString, FString>(), OutputDirectory, MoveTemp(CompletionCallback));
+	PlaneToPBRHuggingFace::DownloadNextOutputTexture(MoveTemp(PendingDownloads), TMap<FString, FString>(), OutputDirectory, ResponseParser, MoveTemp(CompletionCallback));
 }
 
 void PlaneToPBRHuggingFace::DownloadNextOutputTexture(
 	TArray<TPair<FString, FString>> PendingDownloads,
 	TMap<FString, FString> DownloadedTexturePaths,
 	const FString& OutputDirectory,
+	FPlaneToPBRHuggingFaceResponseParser ResponseParser,
 	FPlaneToPBRHuggingFaceCallback CompletionCallback)
 {
 	if (PendingDownloads.Num() == 0)
@@ -354,8 +370,9 @@ void PlaneToPBRHuggingFace::DownloadNextOutputTexture(
 		 DownloadedTexturePaths = MoveTemp(DownloadedTexturePaths),
 		 OutputDirectory,
 		 CurrentDownload,
+		 ResponseParser,
 		 CompletionCallback = MoveTemp(CompletionCallback)](
-			FHttpRequestPtr DownloadRequestPtr,
+			FHttpRequestPtr,
 			FHttpResponsePtr DownloadResponse,
 			bool bDownloadConnectedSuccessfully) mutable
 		{
@@ -370,7 +387,7 @@ void PlaneToPBRHuggingFace::DownloadNextOutputTexture(
 
 			if (DownloadResponse->GetResponseCode() < 200 || DownloadResponse->GetResponseCode() >= 300)
 			{
-				const FString ResponseExcerpt = FPlaneToPBRHuggingFaceProtocol::TruncateResponseBody(DownloadResponse->GetContentAsString());
+				const FString ResponseExcerpt = ResponseParser.TruncateResponseBody(DownloadResponse->GetContentAsString());
 				PlaneToPBRHuggingFace::CompleteRequest(
 					MoveTemp(CompletionCallback),
 					false,
@@ -389,7 +406,7 @@ void PlaneToPBRHuggingFace::DownloadNextOutputTexture(
 			}
 
 			DownloadedTexturePaths.Add(CurrentDownload.Key, OutputPath);
-			PlaneToPBRHuggingFace::DownloadNextOutputTexture(MoveTemp(PendingDownloads), MoveTemp(DownloadedTexturePaths), OutputDirectory, MoveTemp(CompletionCallback));
+			PlaneToPBRHuggingFace::DownloadNextOutputTexture(MoveTemp(PendingDownloads), MoveTemp(DownloadedTexturePaths), OutputDirectory, ResponseParser, MoveTemp(CompletionCallback));
 		});
 
 	if (!DownloadRequest->ProcessRequest())
