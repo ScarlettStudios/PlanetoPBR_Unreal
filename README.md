@@ -33,7 +33,25 @@ Generated maps:
 - Roughness
 - Prompt-based mask
 
-## Plugin Workflow
+## Installation
+
+PlaneToPBR is currently packaged and tested for Unreal Engine 5.7 on Win64.
+
+To install from a packaged zip:
+
+1. Extract `PlaneToPBR.zip`.
+2. Copy the extracted `PlaneToPBR` folder into your Unreal project's `Plugins` folder.
+3. Restart Unreal Editor.
+4. Open `Edit > Plugins`, search for `PlaneToPBR`, and confirm the plugin is enabled.
+5. Restart Unreal Editor again if Unreal asks you to.
+
+The installed plugin should be located at:
+
+```text
+YourProject/Plugins/PlaneToPBR/PlaneToPBR.uplugin
+```
+
+## Usage
 
 Open the editor tool from:
 
@@ -45,18 +63,44 @@ Workflow:
 
 1. Pick a source image.
 2. Enter an optional prompt.
-3. Generate PBR maps through the configured Hugging Face Space.
-4. Import the generated maps as persistent Unreal assets.
-5. Create a generated material.
-6. Create and place a displaced plane in the level.
+3. Click `Generate PBR Plane`.
+4. Wait while PlaneToPBR uploads the image, generates maps through the managed Hugging Face Space, downloads the generated textures, imports assets, creates a material, and places a displaced plane actor in the current level.
+5. Inspect the generated assets and actor in the editor.
 
-Generated plugin outputs are written under:
+PlaneToPBR imports generated Unreal assets under:
 
 ```text
 Content/PlaneToPBR/Generated/
 ```
 
-That folder is generated-only and ignored by source control.
+Each generation run creates a timestamped folder containing imported textures, the generated material, and the displaced static mesh.
+
+Downloaded intermediate PNG files are written under:
+
+```text
+Saved/PlaneToPBR/Generated/
+```
+
+Intermediate OBJ mesh files are written under:
+
+```text
+Saved/PlaneToPBR/Meshes/
+```
+
+The `Saved/` files are temporary/generated support files. The imported assets under `Content/PlaneToPBR/Generated/` are the assets to inspect and use in the project.
+
+## Implementation Workflow
+
+The editor workflow performs these steps:
+
+1. Upload the selected source image.
+2. Join and poll the managed Hugging Face generation queue.
+3. Download generated depth, normal, roughness, and mask PNG files.
+4. Import the generated maps as persistent Unreal assets.
+5. Create a generated material.
+6. Create and place a displaced plane in the level.
+
+`Content/PlaneToPBR/Generated/` is generated-only and ignored by source control.
 
 ## Hugging Face Space
 
