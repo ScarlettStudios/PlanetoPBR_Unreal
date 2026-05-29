@@ -37,19 +37,43 @@ Generated maps:
 
 PlaneToPBR is currently packaged and tested for Unreal Engine 5.7 on Win64.
 
-To install from a packaged zip:
+### Install From GitHub Release
 
-1. Extract `PlaneToPBR.zip`.
-2. Copy the extracted `PlaneToPBR` folder into your Unreal project's `Plugins` folder.
-3. Restart Unreal Editor.
-4. Open `Edit > Plugins`, search for `PlaneToPBR`, and confirm the plugin is enabled.
-5. Restart Unreal Editor again if Unreal asks you to.
+1. Open the repository's GitHub Releases page.
+2. Download `PlaneToPBR.zip` from the latest PlaneToPBR release.
+3. Extract `PlaneToPBR.zip`.
+4. Copy the extracted `PlaneToPBR` folder into your Unreal project's `Plugins` folder. Create `Plugins` if the project does not already have one.
+5. Restart Unreal Editor.
+6. Open `Edit > Plugins`, search for `PlaneToPBR`, and confirm the plugin is enabled.
+7. Restart Unreal Editor again if Unreal asks you to.
 
 The installed plugin should be located at:
 
 ```text
 YourProject/Plugins/PlaneToPBR/PlaneToPBR.uplugin
 ```
+
+### Install From GitHub Actions Artifact
+
+Before a GitHub Release is published, testers can install the package produced by the packaging workflow:
+
+1. Open the repository's `Actions` tab.
+2. Open the latest successful `Package PlaneToPBR Plugin` workflow run for the target branch or tag.
+3. Download the `PlaneToPBR-plugin` artifact.
+4. Extract the artifact zip to get `PlaneToPBR.zip`.
+5. Extract `PlaneToPBR.zip`.
+6. Copy the extracted `PlaneToPBR` folder into your Unreal project's `Plugins` folder.
+7. Restart Unreal Editor and enable the plugin if prompted.
+
+### Install From Local Package
+
+To install from a locally packaged zip:
+
+1. Extract `PlaneToPBR.zip`.
+2. Copy the extracted `PlaneToPBR` folder into your Unreal project's `Plugins` folder.
+3. Restart Unreal Editor.
+4. Open `Edit > Plugins`, search for `PlaneToPBR`, and confirm the plugin is enabled.
+5. Restart Unreal Editor again if Unreal asks you to.
 
 ## Usage
 
