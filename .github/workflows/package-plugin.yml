@@ -63,7 +63,7 @@ jobs:
 
       - name: Resolve release settings
         id: release
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $shouldPublish = "${{ github.ref_type }}" -eq "tag" -or "${{ inputs.publish-release }}" -eq "true"
           $tagName = "${{ github.ref_name }}"
@@ -89,7 +89,7 @@ jobs:
 
       - name: Publish GitHub release
         if: steps.release.outputs.should-publish == 'true'
-        shell: powershell
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
