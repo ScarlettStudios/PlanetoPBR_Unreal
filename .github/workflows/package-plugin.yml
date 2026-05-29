@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    tags:
+      - v*
   workflow_dispatch:
     inputs:
       target-platforms:
@@ -14,6 +17,23 @@ on:
         description: Unreal Engine directory on the runner.
         required: true
         default: C:\Program Files\Epic Games\UE_5.7
+      publish-release:
+        description: Publish Artifacts/PlaneToPBR.zip to a GitHub release.
+        required: true
+        type: boolean
+        default: false
+      release-tag:
+        description: Release tag to create or update when publishing a release.
+        required: false
+        default: v0.1.0
+      prerelease:
+        description: Mark the GitHub release as a prerelease.
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
 
 jobs:
   package-plugin:
@@ -40,3 +60,69 @@ jobs:
           name: PlaneToPBR-plugin
           path: Artifacts/PlaneToPBR.zip
           if-no-files-found: error
+
+      - name: Resolve release settings
+        id: release
+        shell: powershell
+        run: |
+          $shouldPublish = "${{ github.ref_type }}" -eq "tag" -or "${{ inputs.publish-release }}" -eq "true"
+          $tagName = "${{ github.ref_name }}"
+          if ("${{ github.ref_type }}" -ne "tag") {
+            $tagName = "${{ inputs.release-tag }}"
+          }
+
+          if ($shouldPublish -and [string]::IsNullOrWhiteSpace($tagName)) {
+            throw "release-tag is required when publish-release is enabled."
+          }
+
+          $pluginDescriptor = Get-Content -Raw -LiteralPath "Plugins/PlaneToPBR/PlaneToPBR.uplugin" | ConvertFrom-Json
+          $versionName = $pluginDescriptor.VersionName
+          $isPrerelease = "${{ inputs.prerelease }}"
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $isPrerelease = "true"
+          }
+
+          "should-publish=$($shouldPublish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "tag-name=$tagName" >> $env:GITHUB_OUTPUT
+          "version-name=$versionName" >> $env:GITHUB_OUTPUT
+          "is-prerelease=$($isPrerelease.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Publish GitHub release
+        if: steps.release.outputs.should-publish == 'true'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tagName = "${{ steps.release.outputs.tag-name }}"
+          $versionName = "${{ steps.release.outputs.version-name }}"
+          $notes = @"
+          Initial beta release of the PlaneToPBR Unreal plugin.
+
+          ## Download
+          Download PlaneToPBR.zip, extract it, and copy the PlaneToPBR plugin folder into your Unreal project's Plugins directory.
+
+          ## Includes
+          - PlaneToPBR editor tab
+          - Managed Hugging Face generation integration
+          - Generated texture import
+          - Material creation
+          - Displaced plane mesh/actor creation
+
+          ## Validation
+          - Packaged by GitHub Actions from commit $env:GITHUB_SHA
+          - Built for target platforms: $env:PLUGIN_TARGET_PLATFORMS
+          "@
+
+          $releaseArgs = @(
+            "release", "create", $tagName,
+            "Artifacts/PlaneToPBR.zip",
+            "--target", $env:GITHUB_SHA,
+            "--title", "PlaneToPBR $versionName",
+            "--notes", $notes
+          )
+
+          if ("${{ steps.release.outputs.is-prerelease }}" -eq "true") {
+            $releaseArgs += "--prerelease"
+          }
+
+          gh @releaseArgs
