@@ -41,6 +41,9 @@ jobs:
     env:
       UE_ENGINE_DIR: ${{ inputs.ue-engine-dir || vars.UE_ENGINE_DIR || 'C:\Program Files\Epic Games\UE_5.7' }}
       PLUGIN_TARGET_PLATFORMS: ${{ inputs.target-platforms || vars.PLUGIN_TARGET_PLATFORMS || 'Win64' }}
+      GIT_CONFIG_COUNT: 1
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: '*'
 
     steps:
       - name: Checkout
