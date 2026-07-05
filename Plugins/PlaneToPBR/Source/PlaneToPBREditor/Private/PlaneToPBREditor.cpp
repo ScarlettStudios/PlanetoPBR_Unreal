@@ -41,7 +41,7 @@ void FPlaneToPBREditorModule::RegisterMenus()
 	Section.AddMenuEntry(
 		TEXT("OpenPlaneToPBR"),
 		LOCTEXT("OpenPlaneToPBRLabel", "PlaneToPBR"),
-		LOCTEXT("OpenPlaneToPBRTooltip", "Open the PlaneToPBR editor window."),
+		LOCTEXT("OpenPlaneToPBRTooltip", "Open the PlaneToPBR editor window.\n\n1. Select the flat cropped image you want to convert into a textured plane. PNG or JPG recommended.\n2. Add an optional short material mask prompt only if you want an AI-assisted material mask, i.e. \"windows\"."),
 		FSlateIcon(),
 		FUIAction(FExecuteAction::CreateRaw(this, &FPlaneToPBREditorModule::OpenPlaneToPBRTab)));
 }
