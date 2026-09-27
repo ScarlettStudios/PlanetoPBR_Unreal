@@ -33,30 +33,6 @@ void SPlaneToPBRPanel::Construct(const FArguments& InArgs)
 					.WidthOverride(72.0f)
 					[
 						SNew(STextBlock)
-						.Text(LOCTEXT("HFPromptLabel", "HF Prompt"))
-					]
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				[
-					SNew(SEditableTextBox)
-					.Text(FText::FromString(WorkflowState.HFPrompt))
-					.OnTextChanged(this, &SPlaneToPBRPanel::OnHFPromptChanged)
-				]
-			]
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(0.0f, 0.0f, 0.0f, 8.0f)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				[
-					SNew(SBox)
-					.WidthOverride(72.0f)
-					[
-						SNew(STextBlock)
 						.Text(LOCTEXT("ImageLabel", "Image:"))
 					]
 				]
@@ -74,6 +50,30 @@ void SPlaneToPBRPanel::Construct(const FArguments& InArgs)
 					SNew(SButton)
 					.Text(LOCTEXT("BrowseImageButton", "..."))
 					.OnClicked(this, &SPlaneToPBRPanel::BrowseForImage)
+				]
+			]
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.0f, 0.0f, 0.0f, 8.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(72.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("MaterialMaskPromptLabel", "Material Mask Prompt"))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SNew(SEditableTextBox)
+					.Text(FText::FromString(WorkflowState.HFPrompt))
+					.OnTextChanged(this, &SPlaneToPBRPanel::OnHFPromptChanged)
 				]
 			]
 			+ SVerticalBox::Slot()
