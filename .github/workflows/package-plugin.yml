@@ -18,14 +18,10 @@ on:
         required: true
         default: C:\Program Files\Epic Games\UE_5.7
       publish-release:
-        description: Publish Artifacts/PlaneToPBR.zip to a GitHub release.
+        description: Publish Artifacts/PlaneToPBR.zip to a GitHub release (run this workflow on a tag).
         required: true
         type: boolean
         default: false
-      release-tag:
-        description: Release tag to create or update when publishing a release.
-        required: false
-        default: v0.1.0
       prerelease:
         description: Mark the GitHub release as a prerelease.
         required: true
@@ -69,17 +65,15 @@ jobs:
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $shouldPublish = "${{ github.ref_type }}" -eq "tag" -or "${{ inputs.publish-release }}" -eq "true"
+          if ($shouldPublish -and "${{ github.ref_type }}" -ne "tag") {
+            throw "Publishing requires a tag ref. Select a tag when running this workflow manually, or push a new v* tag."
+          }
+
           $tagName = "${{ github.ref_name }}"
-          if ("${{ github.ref_type }}" -ne "tag") {
-            $tagName = "${{ inputs.release-tag }}"
-          }
-
           if ($shouldPublish -and [string]::IsNullOrWhiteSpace($tagName)) {
-            throw "release-tag is required when publish-release is enabled."
+            throw "The workflow tag ref has no tag name."
           }
 
-          $pluginDescriptor = Get-Content -Raw -LiteralPath "Plugins/PlaneToPBR/PlaneToPBR.uplugin" | ConvertFrom-Json
-          $versionName = $pluginDescriptor.VersionName
           $isPrerelease = "${{ inputs.prerelease }}"
           if ("${{ github.ref_type }}" -eq "tag") {
             $isPrerelease = "true"
@@ -87,7 +81,6 @@ jobs:
 
           "should-publish=$($shouldPublish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           "tag-name=$tagName" >> $env:GITHUB_OUTPUT
-          "version-name=$versionName" >> $env:GITHUB_OUTPUT
           "is-prerelease=$($isPrerelease.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Publish GitHub release
@@ -97,7 +90,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tagName = "${{ steps.release.outputs.tag-name }}"
-          $versionName = "${{ steps.release.outputs.version-name }}"
           $notes = @"
           Initial beta release of the PlaneToPBR Unreal plugin.
 
@@ -120,7 +112,7 @@ jobs:
             "release", "create", $tagName,
             "Artifacts/PlaneToPBR.zip",
             "--target", $env:GITHUB_SHA,
-            "--title", "PlaneToPBR $versionName",
+            "--title", "PlaneToPBR $tagName",
             "--notes", $notes
           )
 
