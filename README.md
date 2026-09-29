@@ -35,6 +35,8 @@ Generated maps:
 
 ## Installation
 
+Watch the How-to Video Here: https://youtu.be/Cuf8gHKDcQE?si=qsAuYUTM80tlW7VT
+
 PlaneToPBR is currently packaged and tested for Unreal Engine 5.7 on Win64.
 
 ### Install From GitHub Release
