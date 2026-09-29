@@ -1,0 +1,46 @@
+# Unreal generated folders
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# IDE/editor local state
+.vs/
+.idea/
+Content/Collections/
+Content/Developers/
+*.sln
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.VC.opendb
+
+# Build/log/temp artifacts
+Artifacts/
+*.log
+*.tmp
+*.temp
+*.obj
+*.pdb
+*.ilk
+*.exp
+
+# Unreal generated HLOD artifacts
+Content/*_HLOD*.uasset
+Content/**/*_HLOD*.uasset
+
+# Duplicate root-level test assets; canonical assets live under Content/Maps.
+Content/BP_PlaneToPBR_Test.uasset
+Content/M_PlaneToPBR.uasset
+Content/test.umap
+Content/__ExternalActors__/test/
+Content/__ExternalObjects__/test/
+
+# PlaneToPBR generated/test project content should not be source controlled.
+Content/PlaneToPBR/

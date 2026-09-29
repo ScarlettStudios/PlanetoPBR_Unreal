@@ -1,0 +1,28 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "PlaneToPBR",
+	"Description": "Generate PBR material assets and displaced plane meshes from a source image using the managed PlaneToPBR service.",
+	"Category": "Editor",
+	"CreatedBy": "Scarlett Studios",
+	"CreatedByURL": "https://github.com/ScarlettStudios",
+	"DocsURL": "https://github.com/ScarlettStudios/PlanetoPBR_Unreal#readme",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/ScarlettStudios/PlanetoPBR_Unreal/issues",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "PlaneToPBR",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "PlaneToPBREditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
