@@ -42,6 +42,10 @@ PlaneToPBR is packaged and tested for Win64 in two alternative distributions:
 
 Both archives contain the same plugin identity and folder name, `PlaneToPBR`. Install only one variant at a time. To switch variants, close Unreal Editor, remove or replace the existing `Plugins/PlaneToPBR` folder, and then install the other archive; do not install both or retain another engine-level copy.
 
+Watch the How-to Video Here: https://youtu.be/Cuf8gHKDcQE?si=qsAuYUTM80tlW7VT
+
+PlaneToPBR is currently packaged and tested for Unreal Engine 5.7 on Win64.
+
 ### Install From GitHub Release
 
 1. Open the repository's GitHub Releases page.
