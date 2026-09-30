@@ -35,13 +35,18 @@ Generated maps:
 
 ## Installation
 
-PlaneToPBR is currently packaged and tested for Unreal Engine 5.7 on Win64.
+PlaneToPBR is packaged and tested for Win64 in two alternative distributions:
+
+- `PlaneToPBR.zip` is the standard plugin with the existing editor UI and supports Unreal Engine 5.7.
+- `PlaneToPBRMCP.zip` is a standalone MCP superset with the same editor UI plus MCP tools. It requires Unreal Engine 5.8+ and the engine's `ModelContextProtocol` and `ToolsetRegistry` plugins.
+
+Both archives contain the same plugin identity and folder name, `PlaneToPBR`. Install only one variant at a time. To switch variants, close Unreal Editor, remove or replace the existing `Plugins/PlaneToPBR` folder, and then install the other archive; do not install both or retain another engine-level copy.
 
 ### Install From GitHub Release
 
 1. Open the repository's GitHub Releases page.
-2. Download `PlaneToPBR.zip` from the latest PlaneToPBR release.
-3. Extract `PlaneToPBR.zip`.
+2. Download `PlaneToPBR.zip` for the standard plugin or `PlaneToPBRMCP.zip` for the MCP superset from the latest PlaneToPBR release.
+3. Extract the selected ZIP.
 4. Copy the extracted `PlaneToPBR` folder into your Unreal project's `Plugins` folder. Create `Plugins` if the project does not already have one.
 5. Restart Unreal Editor.
 6. Open `Edit > Plugins`, search for `PlaneToPBR`, and confirm the plugin is enabled.
@@ -59,17 +64,17 @@ Before a GitHub Release is published, testers can install the package produced b
 
 1. Open the repository's `Actions` tab.
 2. Open the latest successful `Package PlaneToPBR Plugin` workflow run for the target branch or tag.
-3. Download the `PlaneToPBR-plugin` artifact.
-4. Extract the artifact zip to get `PlaneToPBR.zip`.
-5. Extract `PlaneToPBR.zip`.
+3. Download `PlaneToPBR-plugin` for the standard variant or `PlaneToPBRMCP-plugin` for the MCP variant.
+4. Extract the artifact ZIP to get `PlaneToPBR.zip` or `PlaneToPBRMCP.zip`.
+5. Extract the selected plugin ZIP.
 6. Copy the extracted `PlaneToPBR` folder into your Unreal project's `Plugins` folder.
 7. Restart Unreal Editor and enable the plugin if prompted.
 
 ### Install From Local Package
 
-To install from a locally packaged zip:
+To install from a locally packaged ZIP:
 
-1. Extract `PlaneToPBR.zip`.
+1. Extract `PlaneToPBR.zip` or `PlaneToPBRMCP.zip`, depending on the desired variant.
 2. Copy the extracted `PlaneToPBR` folder into your Unreal project's `Plugins` folder.
 3. Restart Unreal Editor.
 4. Open `Edit > Plugins`, search for `PlaneToPBR`, and confirm the plugin is enabled.
@@ -169,17 +174,20 @@ The packaging script lives at:
 Build/PackagePlaneToPBRPlugin.ps1
 ```
 
-It packages only:
+The source descriptor remains standard-only. Each invocation stages one isolated variant before building it:
 
 ```text
-Plugins/PlaneToPBR/PlaneToPBR.uplugin
+Standard: PlaneToPBR and PlaneToPBREditor
+MCP:      PlaneToPBR, PlaneToPBREditor, and PlaneToPBRMCP
 ```
 
-The packaged plugin is written to:
+The deliverables are written to:
 
 ```text
 Artifacts/PlaneToPBR
 Artifacts/PlaneToPBR.zip
+Artifacts/MCP/PlaneToPBR
+Artifacts/PlaneToPBRMCP.zip
 ```
 
 `Artifacts/` is generated-only and ignored by source control.
@@ -190,6 +198,14 @@ Artifacts/PlaneToPBR.zip
 $env:UE_ENGINE_DIR = "C:\Program Files\Epic Games\UE_5.7"
 $env:PLUGIN_TARGET_PLATFORMS = "Win64"
 .\Build\PackagePlaneToPBRPlugin.ps1
+```
+
+To package the MCP superset, select the MCP engine explicitly:
+
+```powershell
+$env:UE_ENGINE_DIR = "C:\Program Files\Epic Games\UE_5.8"
+$env:PLUGIN_TARGET_PLATFORMS = "Win64"
+.\Build\PackagePlaneToPBRPlugin.ps1 -Variant MCP
 ```
 
 ### Docker Packaging
