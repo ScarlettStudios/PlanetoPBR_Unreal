@@ -20,7 +20,7 @@ enum class EPlaneToPBRTextureRole : uint8
 /**
  * Configuration and asset metadata associated with a particular texture role.
  */
-struct FPlaneToPBRTextureRoleInfo
+struct PLANETOPBREDITOR_API FPlaneToPBRTextureRoleInfo
 {
 	/** Texture role identifier. */
 	EPlaneToPBRTextureRole Role = EPlaneToPBRTextureRole::Unknown;
@@ -44,7 +44,7 @@ struct FPlaneToPBRTextureRoleInfo
 /**
  * Registry and lookup helper for texture roles, settings, and names.
  */
-class FPlaneToPBRTextureRoles
+class PLANETOPBREDITOR_API FPlaneToPBRTextureRoles
 {
 public:
 	/** Returns the list of texture roles required to be downloaded from the Hugging Face Space. */

@@ -8,7 +8,7 @@ class UMaterialInterface;
  * Builds and persists Unreal Material graph assets incorporating imported PBR texture maps
  * (BaseColor, Normal, Roughness, and Material Mask blend expressions).
  */
-class FPlaneToPBRMaterialBuilder
+class PLANETOPBREDITOR_API FPlaneToPBRMaterialBuilder
 {
 public:
 	/**
