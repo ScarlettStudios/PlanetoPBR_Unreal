@@ -34,4 +34,5 @@ catch {
 	}
 }
 
+& (Join-Path $PSScriptRoot "TestPlaneToPBREngine.ps1")
 Write-Host "PlaneToPBR packaging isolation safeguards passed."

@@ -7,13 +7,13 @@ function Get-PlaneToPBRModules {
 
 function Assert-PlaneToPBREngine {
 	param([string]$EngineDir, [string]$Variant)
-	if ($Variant -ne "MCP") { return }
 	$versionFile = Join-Path $EngineDir "Build/Build.version"
-	if (-not (Test-Path -LiteralPath $versionFile)) { throw "MCP requires an installed UE 5.8+ engine with Build.version." }
+	if (-not (Test-Path -LiteralPath $versionFile)) { throw "Both plugin variants require an installed UE 5.8 engine with Build.version." }
 	$version = Get-Content -Raw -LiteralPath $versionFile | ConvertFrom-Json
-	if ($version.MajorVersion -lt 5 -or ($version.MajorVersion -eq 5 -and $version.MinorVersion -lt 8)) {
-		throw "MCP requires UE 5.8+; this installation is $($version.MajorVersion).$($version.MinorVersion)."
+	if ($version.MajorVersion -ne 5 -or $version.MinorVersion -ne 8) {
+		throw "Both plugin variants require UE 5.8; this installation is $($version.MajorVersion).$($version.MinorVersion)."
 	}
+	if ($Variant -ne "MCP") { return }
 	foreach ($name in @("ModelContextProtocol", "ToolsetRegistry")) {
 		$plugins = @(Get-ChildItem -LiteralPath (Join-Path $EngineDir "Plugins") -Recurse -File -Filter "$name.uplugin")
 		if ($plugins.Count -ne 1) { throw "MCP engine integration unavailable: expected one $name.uplugin." }
