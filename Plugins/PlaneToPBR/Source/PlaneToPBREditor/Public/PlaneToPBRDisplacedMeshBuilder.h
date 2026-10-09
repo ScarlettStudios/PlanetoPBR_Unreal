@@ -4,11 +4,19 @@
 
 class UMaterialInterface;
 
+struct PLANETOPBREDITOR_API FPlaneToPBRMeshOptions
+{
+	float PlaneWidthCm = 200.0f;
+	int32 Subdivisions = 96;
+	float DisplacementStrengthCm = 25.0f;
+	TFunction<bool()> ShouldCancel;
+};
+
 /**
  * Handles creation, importing, material assignment, and level actor spawning
  * for procedural displaced plane static meshes.
  */
-class FPlaneToPBRDisplacedMeshBuilder
+class PLANETOPBREDITOR_API FPlaneToPBRDisplacedMeshBuilder
 {
 public:
 	/**
@@ -29,6 +37,16 @@ public:
 		FString& OutActorLabel,
 		FString& OutErrorMessage);
 
+	static bool CreateGeneratedDisplacedPlaneActor(
+		const FString& ContentPath,
+		UMaterialInterface* Material,
+		const TMap<FString, FString>& TexturePaths,
+		FString& OutActorLabel,
+		FString& OutErrorMessage,
+		const FPlaneToPBRMeshOptions& Options,
+		FString& OutMeshPath,
+		FString& OutActorName);
+
 private:
 	/**
 	 * Reads the depth image file, evaluates displaced plane geometry, and writes out an OBJ file on disk.
@@ -40,4 +58,13 @@ private:
 		int32& OutDepthHeight,
 		int32& OutSubdivisionsY,
 		FString& OutErrorMessage);
+
+	static bool CreateDisplacedPlaneObj(
+		const FString& DepthTexturePath,
+		const FString& ObjPath,
+		int32& OutDepthWidth,
+		int32& OutDepthHeight,
+		int32& OutSubdivisionsY,
+		FString& OutErrorMessage,
+		const FPlaneToPBRMeshOptions& Options);
 };

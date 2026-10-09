@@ -2,6 +2,18 @@
 
 #include "CoreMinimal.h"
 #include "PlaneToPBRHuggingFaceClient.h"
+#include "PlaneToPBRDisplacedMeshBuilder.h"
+
+struct PLANETOPBREDITOR_API FPlaneToPBRGenerationResult
+{
+	bool bSucceeded = false;
+	FString Message;
+	FString ContentPath;
+	TMap<FString, FString> TextureAssetPaths;
+	FString MaterialPath;
+	FString MeshPath;
+	FString ActorName;
+};
 
 /**
  * High-level coordinator managing the complete end-to-end pipeline:
@@ -10,7 +22,7 @@
  * 3. Constructing the PBR material graph
  * 4. Generating the displaced StaticMesh and spawning it into the active level
  */
-class FPlaneToPBRGenerationWorkflow
+class PLANETOPBREDITOR_API FPlaneToPBRGenerationWorkflow
 {
 public:
 	/** Status update callback reporting progress messages to the editor UI. */
@@ -30,4 +42,11 @@ public:
 		const FPlaneToPBRHuggingFaceRequest& Request,
 		FStatusCallback StatusCallback,
 		FCompletionCallback CompletionCallback);
+
+	/** Generates a plane with explicit geometry settings and reports final assets or diagnostics. */
+	void GeneratePBRPlane(
+		const FPlaneToPBRHuggingFaceRequest& Request,
+		const FPlaneToPBRMeshOptions& Options,
+		FStatusCallback StatusCallback,
+		TFunction<void(const FPlaneToPBRGenerationResult&)> ResultCallback);
 };

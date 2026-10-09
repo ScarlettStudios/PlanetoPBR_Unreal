@@ -28,6 +28,29 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(
 	FString& OutActorLabel,
 	FString& OutErrorMessage)
 {
+	FString MeshPath;
+	FString ActorName;
+	return CreateGeneratedDisplacedPlaneActor(ContentPath, Material, TexturePaths,
+		OutActorLabel, OutErrorMessage, FPlaneToPBRMeshOptions(), MeshPath, ActorName);
+}
+
+bool FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(
+	const FString& ContentPath,
+	UMaterialInterface* Material,
+	const TMap<FString, FString>& TexturePaths,
+	FString& OutActorLabel,
+	FString& OutErrorMessage,
+	const FPlaneToPBRMeshOptions& Options,
+	FString& OutMeshPath,
+	FString& OutActorName)
+{
+	if (!IsInGameThread() || !FMath::IsFinite(Options.PlaneWidthCm) || Options.PlaneWidthCm <= 0.0f ||
+		!FMath::IsFinite(Options.DisplacementStrengthCm) || Options.DisplacementStrengthCm < 0.0f ||
+		Options.Subdivisions < 1 || Options.Subdivisions > 512)
+	{
+		OutErrorMessage = TEXT("Mesh creation requires the GameThread, positive finite width, subdivisions 1-512, and nonnegative finite displacement.");
+		return false;
+	}
 	// Locate active level editing world context
 	UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 	if (!World)
@@ -58,7 +81,7 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(
 	int32 DepthWidth = 0;
 	int32 DepthHeight = 0;
 	int32 SubdivisionsY = 0;
-	if (!CreateDisplacedPlaneObj(*DepthTexturePath, ObjPath, DepthWidth, DepthHeight, SubdivisionsY, OutErrorMessage))
+	if (!CreateDisplacedPlaneObj(*DepthTexturePath, ObjPath, DepthWidth, DepthHeight, SubdivisionsY, OutErrorMessage, Options))
 	{
 		return false;
 	}
@@ -152,6 +175,8 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateGeneratedDisplacedPlaneActor(
 	GEditor->RedrawLevelEditingViewports();
 
 	OutActorLabel = PlaneActor->GetActorLabel();
+	OutActorName = PlaneActor->GetName();
+	OutMeshPath = DisplacedPlaneMesh->GetPathName();
 	return true;
 }
 
@@ -162,6 +187,19 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateDisplacedPlaneObj(
 	int32& OutDepthHeight,
 	int32& OutSubdivisionsY,
 	FString& OutErrorMessage)
+{
+	return CreateDisplacedPlaneObj(DepthTexturePath, ObjPath, OutDepthWidth, OutDepthHeight,
+		OutSubdivisionsY, OutErrorMessage, FPlaneToPBRMeshOptions());
+}
+
+bool FPlaneToPBRDisplacedMeshBuilder::CreateDisplacedPlaneObj(
+	const FString& DepthTexturePath,
+	const FString& ObjPath,
+	int32& OutDepthWidth,
+	int32& OutDepthHeight,
+	int32& OutSubdivisionsY,
+	FString& OutErrorMessage,
+	const FPlaneToPBRMeshOptions& Options)
 {
 	// Load compressed image file from disk
 	TArray<uint8> CompressedDepthData;
@@ -188,6 +226,14 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateDisplacedPlaneObj(
 	}
 
 	// Decompress 8-bit grayscale pixels
+	const int64 PixelCount = static_cast<int64>(ImageWrapper->GetWidth()) * ImageWrapper->GetHeight();
+	const double VerticalSubdivisions = static_cast<double>(Options.Subdivisions) * ImageWrapper->GetHeight() / FMath::Max(1, ImageWrapper->GetWidth());
+	if (PixelCount <= 0 || PixelCount > 67108864 || VerticalSubdivisions > 2048.0 ||
+		(static_cast<double>(Options.Subdivisions) + 1.0) * (VerticalSubdivisions + 2.0) > 1048576.0)
+	{
+		OutErrorMessage = TEXT("Depth image dimensions or requested mesh exceed safe generation limits.");
+		return false;
+	}
 	FPlaneToPBRDepthImage DepthImage;
 	if (!ImageWrapper->GetRaw(ERGBFormat::Gray, 8, DepthImage.Pixels))
 	{
@@ -207,7 +253,11 @@ bool FPlaneToPBRDisplacedMeshBuilder::CreateDisplacedPlaneObj(
 
 	// Build procedural vertex and face arrays
 	FPlaneToPBRDisplacedPlaneGeometry Geometry;
-	if (!FPlaneToPBRDisplacedPlaneGeometryBuilder::Build(DepthImage, FPlaneToPBRDisplacedPlaneSettings(), Geometry))
+	FPlaneToPBRDisplacedPlaneSettings Settings;
+	Settings.PlaneWidthCm = Options.PlaneWidthCm;
+	Settings.SubdivisionsX = Options.Subdivisions;
+	Settings.DisplacementStrengthCm = Options.DisplacementStrengthCm;
+	if (!FPlaneToPBRDisplacedPlaneGeometryBuilder::Build(DepthImage, Settings, Geometry))
 	{
 		OutErrorMessage = FString::Printf(TEXT("Failed to generate displaced plane geometry from depth image: %s"), *DepthTexturePath);
 		return false;
