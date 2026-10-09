@@ -11,12 +11,9 @@ on:
         required: true
         default: Win64
       ue-engine-dir:
-        description: Standard plugin engine directory on the runner.
+        description: Shared UE 5.8 engine directory for both plugin variants on the runner.
         required: true
-        default: C:\Program Files\Epic Games\UE_5.7
-      mcp-ue-engine-dir:
-        description: UE 5.8+ MCP engine directory (or configure UE_MCP_ENGINE_DIR repository variable).
-        required: false
+        default: C:\Program Files\Epic Games\UE_5.8
       publish-release:
         description: Publish both plugin ZIPs to a GitHub release (run this workflow on a tag).
         required: true
@@ -45,8 +42,7 @@ jobs:
             artifact: PlaneToPBRMCP-plugin
             zip: PlaneToPBRMCP.zip
     env:
-      UE_STANDARD_ENGINE_DIR: ${{ inputs.ue-engine-dir || vars.UE_ENGINE_DIR || 'C:\Program Files\Epic Games\UE_5.7' }}
-      UE_MCP_ENGINE_DIR: ${{ inputs.mcp-ue-engine-dir || vars.UE_MCP_ENGINE_DIR }}
+      UE_ENGINE_DIR: ${{ inputs.ue-engine-dir || vars.UE_ENGINE_DIR || 'C:\Program Files\Epic Games\UE_5.8' }}
       PLANETOPBR_VARIANT: ${{ matrix.variant }}
       PLUGIN_TARGET_PLATFORMS: ${{ inputs.target-platforms || vars.PLUGIN_TARGET_PLATFORMS || 'Win64' }}
       GIT_CONFIG_COUNT: 1
@@ -56,15 +52,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Select variant engine
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: |
-          $engine = if ($env:PLANETOPBR_VARIANT -eq 'MCP') { $env:UE_MCP_ENGINE_DIR } else { $env:UE_STANDARD_ENGINE_DIR }
-          if ([string]::IsNullOrWhiteSpace($engine)) {
-            throw "Configure UE_MCP_ENGINE_DIR or the mcp-ue-engine-dir input with an installed UE 5.8+ engine."
-          }
-          "UE_ENGINE_DIR=$engine" >> $env:GITHUB_ENV
 
       - name: Validate packaging safeguards
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -159,8 +146,8 @@ jobs:
           PlaneToPBR standard and MCP distributions.
 
           ### Download one variant
-          - PlaneToPBR.zip: standard editor plugin, built on the configured standard engine (UE 5.7 by default); no MCP dependencies.
-          - PlaneToPBRMCP.zip: independently installable superset with the same editor UI plus MCP tools; requires UE 5.8+ and its ModelContextProtocol and ToolsetRegistry engine plugins.
+          - PlaneToPBR.zip: standard editor plugin, built for UE 5.8; no MCP dependencies.
+          - PlaneToPBRMCP.zip: independently installable superset with the same editor UI plus MCP tools, built with the same UE 5.8 engine; requires its ModelContextProtocol and ToolsetRegistry engine plugins.
           Each ZIP contains PlaneToPBR/PlaneToPBR.uplugin. Copy that folder into your project's Plugins directory. To switch variants, close the editor and replace the existing PlaneToPBR folder completely. Do not install both variants or another engine-level copy together.
 
           ### Includes
