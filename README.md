@@ -224,7 +224,7 @@ The packaging script lives at:
 Build/PackagePlaneToPBRPlugin.ps1
 ```
 
-The source descriptor remains standard-only. Each invocation stages one isolated variant before building it:
+The source descriptor includes both variants. Each packaging invocation stages an isolated variant, removing the MCP module and engine plugin dependencies for a standard build:
 
 ```text
 Standard: PlaneToPBR and PlaneToPBREditor
