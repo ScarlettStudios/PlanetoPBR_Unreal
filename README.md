@@ -122,6 +122,52 @@ Saved/PlaneToPBR/Meshes/
 
 The `Saved/` files are temporary/generated support files. The imported assets under `Content/PlaneToPBR/Generated/` are the assets to inspect and use in the project.
 
+## Unreal MCP Integration
+
+PlaneToPBR's MCP variant adds an Unreal MCP toolset that lets an MCP-compatible agent generate PBR textures, create materials, and create displaced planes in the open Unreal Editor. The connection flow is:
+
+```text
+Codex → Unreal MCP → PlaneToPBR MCP Toolset → PlaneToPBR
+```
+
+The registered toolset is `PlaneToPBRMCP.PlaneToPBRToolset`. Its tools can generate a complete PBR plane from an image, generate texture maps, import generated maps, create a material, or create a displaced mesh. Unreal Editor must be running while Codex uses these tools.
+
+### Prerequisites
+
+- Unreal Engine 5.8 with the Unreal MCP plugin available and enabled. In the Plugins window it may be listed as **Unreal MCP**; its plugin identifier is `ModelContextProtocol`.
+- The PlaneToPBR MCP variant installed in your project. It includes both the PlaneToPBR editor UI and the MCP module, and requires Unreal's `ModelContextProtocol` and `ToolsetRegistry` plugins.
+- An MCP-compatible client. The steps below use OpenAI Codex CLI.
+- Unreal Editor open with the project loaded whenever you want Codex to call PlaneToPBR tools.
+
+### Install the MCP variant
+
+Download `PlaneToPBRMCP.zip` from the latest GitHub Release or the `PlaneToPBRMCP-plugin` GitHub Actions artifact, then extract the archive. Install its `PlaneToPBR` folder into the project-level `Plugins` directory (create `Plugins` if needed):
+
+```text
+YourProject/
+├── Plugins/
+│   └── PlaneToPBR/
+│       ├── PlaneToPBR.uplugin
+│       └── Source/
+└── YourProject.uproject
+```
+
+The MCP archive is the PlaneToPBR plugin built with its MCP module and engine plugin dependencies. Install only one PlaneToPBR variant at a time; the standard and MCP archives both install to `Plugins/PlaneToPBR`.
+
+Restart Unreal Editor, then open `Edit > Plugins` and confirm **PlaneToPBR**, **Unreal MCP**, and **Toolset Registry** are enabled. Enable the engine plugins if they are not already enabled and restart the editor when prompted.
+
+### Connect Codex CLI
+
+1. In Unreal Editor, open `Edit > Editor Preferences > General > Model Context Protocol` and enable **Auto Start Server**. The default local endpoint is `http://127.0.0.1:8000/mcp`.
+2. Restart the editor if needed, or start the server on demand from the editor console with `ModelContextProtocol.StartServer`.
+3. In the editor console, run `ModelContextProtocol.GenerateClientConfig Codex`. Unreal writes the Codex MCP configuration for the project. If a Codex config already exists and the command reports that it will not overwrite it, merge the generated Unreal MCP server entry into the existing config.
+4. Open a terminal in the Unreal project root and start Codex CLI with `codex`. Keep Unreal Editor running while the agent is connected.
+5. Ask Codex to inspect the available PlaneToPBR tools, then provide the full path to an input image and describe the texture prompt or plane settings you want.
+
+For example, you can ask Codex: “Use PlaneToPBR to generate a PBR plane from `C:\\Assets\\rock.png` with a weathered basalt prompt.” Codex can discover the `PlaneToPBRMCP.PlaneToPBRToolset` and call its tools through Unreal MCP. Generated assets are imported under `Content/PlaneToPBR/Generated/`.
+
+PlaneToPBR sends the selected source image and optional prompt to its managed Hugging Face generation service. Use images you are comfortable sending to that service. The MCP server listens on the local machine by default; keep it local and do not expose it to an untrusted network.
+
 ## Implementation Workflow
 
 The editor workflow performs these steps:
