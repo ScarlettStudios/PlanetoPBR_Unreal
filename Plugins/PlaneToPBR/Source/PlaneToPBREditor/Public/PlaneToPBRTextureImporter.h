@@ -6,7 +6,7 @@
  * Handles importing downloaded image files and the source color image as UTexture2D assets in the Content Browser,
  * ensuring appropriate compression settings and sRGB color space flags per texture role.
  */
-class FPlaneToPBRTextureImporter
+class PLANETOPBREDITOR_API FPlaneToPBRTextureImporter
 {
 public:
 	/**

@@ -1,13 +1,15 @@
 param(
-	[string]$ProjectPath = "planetoPBR_unreal.uproject",
-	[string]$TargetName = "planetoPBR_unrealEditor",
+	[ValidateSet("Standard", "MCP")][string]$Variant = "Standard",
+	[string]$ProjectPath,
+	[string]$TargetName,
 	[string]$Configuration = "Development",
 	[string]$Platform = "",
 	[string]$TestFilter = "PlaneToPBR",
-	[string]$ReportOutputPath = "Saved/Automation/PlaneToPBR"
+	[string]$ReportOutputPath
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "PlaneToPBRVariants.ps1")
 
 function Resolve-FullPath {
 	param([string]$Path)
@@ -37,7 +39,9 @@ if ([string]::IsNullOrWhiteSpace($Platform)) {
 }
 
 $engineDir = Resolve-FullPath $env:UE_ENGINE_DIR
-$projectFile = Resolve-FullPath $ProjectPath
+if (-not $ReportOutputPath) {
+	$ReportOutputPath = if ($Variant -eq "Standard") { "Saved/Automation/PlaneToPBR" } else { "Saved/Automation/PlaneToPBRMCP" }
+}
 $reportOutput = Resolve-FullPath $ReportOutputPath
 
 if (-not (Test-Path -LiteralPath $engineDir -PathType Container)) {
@@ -48,6 +52,27 @@ if ((Test-Path -LiteralPath (Join-Path $engineDir "Engine") -PathType Container)
 	-not (Test-Path -LiteralPath (Join-Path $engineDir "Build") -PathType Container)) {
 	$engineDir = Join-Path $engineDir "Engine"
 }
+
+Assert-PlaneToPBREngine -EngineDir $engineDir -Variant $Variant
+if (-not $ProjectPath) {
+	$repo = Split-Path -Parent $PSScriptRoot
+	$hostRoot = Join-Path $repo "Artifacts/Variants/$Variant/TestHost"
+	New-Item -ItemType Directory -Path $hostRoot -Force | Out-Null
+	$pluginRoot = Join-Path $hostRoot "Plugins/PlaneToPBR"
+	New-PlaneToPBRStage -PluginFile (Join-Path $repo "Plugins/PlaneToPBR/PlaneToPBR.uplugin") -Destination $pluginRoot -Variant $Variant
+	$ProjectPath = Join-Path $hostRoot "TestHost.uproject"
+	@{ FileVersion = 3; Plugins = @(@{ Name = "PlaneToPBR"; Enabled = $true }) } |
+		ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $ProjectPath -Encoding UTF8
+	New-Item -ItemType Directory -Path (Join-Path $hostRoot "Build") -Force | Out-Null
+	Copy-Item -LiteralPath (Join-Path $PSScriptRoot "PackagePlaneToPBRPlugin.ps1") -Destination (Join-Path $hostRoot "Build") -Force
+	Copy-Item -LiteralPath (Join-Path $PSScriptRoot "PlaneToPBRVariants.ps1") -Destination (Join-Path $hostRoot "Build") -Force
+	if (-not $TargetName) { $TargetName = "UnrealEditor" }
+} elseif (-not $TargetName) {
+	$TargetName = [IO.Path]::GetFileNameWithoutExtension($ProjectPath) + "Editor"
+}
+$projectFile = Resolve-FullPath $ProjectPath
+$pluginRoot = Join-Path (Split-Path -Parent $projectFile) "Plugins/PlaneToPBR"
+Assert-PlaneToPBRVariant -Root $pluginRoot -Variant $Variant
 
 if (-not (Test-Path -LiteralPath $projectFile -PathType Leaf)) {
 	throw "Project file does not exist: $projectFile"
@@ -90,9 +115,27 @@ Write-Host "Running PlaneToPBR automation tests"
 Write-Host "TestFilter: $TestFilter"
 Write-Host "ReportOutputPath: $reportOutput"
 
+$runStarted = Get-Date
 & $editorCmd $projectFile "-ExecCmds=Automation RunTests $TestFilter" "-TestExit=Automation Test Queue Empty" "-ReportOutputPath=$reportOutput" -unattended -nop4 -nullrhi -nosplash
 if ($LASTEXITCODE -ne 0) {
 	throw "PlaneToPBR automation tests failed with exit code $LASTEXITCODE."
 }
 
-Write-Host "PlaneToPBR automation tests completed."
+$reportFile = Join-Path $reportOutput "index.json"
+if (-not (Test-Path -LiteralPath $reportFile) -or (Get-Item -LiteralPath $reportFile).LastWriteTime -lt $runStarted) {
+	throw "Automation did not produce a fresh report: $reportFile"
+}
+$report = Get-Content -Raw -LiteralPath $reportFile | ConvertFrom-Json
+if ($report.failed -gt 0 -or $report.notRun -gt 0 -or $report.inProcess -gt 0 -or ($report.succeeded + $report.succeededWithWarnings) -eq 0) {
+	throw "Automation report is failed, incomplete, or empty."
+}
+$mcpTests = @($report.tests | Where-Object { $_.fullTestPath -like "PlaneToPBR.MCP.*" })
+if ($Variant -eq "Standard" -and $mcpTests.Count -gt 0) { throw "Standard automation accidentally loaded MCP tests." }
+if ($Variant -eq "MCP") {
+	foreach ($name in @("ModuleLoad", "ToolsetRegistration", "InputValidation", "WorkflowInvocation")) {
+		if (-not ($mcpTests | Where-Object { $_.fullTestPath -eq "PlaneToPBR.MCP.$name" -and $_.state -eq "Success" })) {
+			throw "Required MCP test did not pass: $name"
+		}
+	}
+}
+Write-Host "PlaneToPBR $Variant automation tests completed: $($report.succeeded) passed."

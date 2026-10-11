@@ -11,11 +11,11 @@ on:
         required: true
         default: Win64
       ue-engine-dir:
-        description: Unreal Engine directory on the runner.
+        description: Shared UE 5.8 engine directory for both plugin variants on the runner.
         required: true
-        default: C:\Program Files\Epic Games\UE_5.7
+        default: C:\Program Files\Epic Games\UE_5.8
       publish-release:
-        description: Publish Artifacts/PlaneToPBR.zip to a GitHub release (run this workflow on a tag).
+        description: Publish both plugin ZIPs to a GitHub release (run this workflow on a tag).
         required: true
         type: boolean
         default: false
@@ -31,8 +31,19 @@ permissions:
 jobs:
   package-plugin:
     runs-on: [self-hosted, windows]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: Standard
+            artifact: PlaneToPBR-plugin
+            zip: PlaneToPBR.zip
+          - variant: MCP
+            artifact: PlaneToPBRMCP-plugin
+            zip: PlaneToPBRMCP.zip
     env:
-      UE_ENGINE_DIR: ${{ inputs.ue-engine-dir || vars.UE_ENGINE_DIR || 'C:\Program Files\Epic Games\UE_5.7' }}
+      UE_ENGINE_DIR: ${{ inputs.ue-engine-dir || vars.UE_ENGINE_DIR || 'C:\Program Files\Epic Games\UE_5.8' }}
+      PLANETOPBR_VARIANT: ${{ matrix.variant }}
       PLUGIN_TARGET_PLATFORMS: ${{ inputs.target-platforms || vars.PLUGIN_TARGET_PLATFORMS || 'Win64' }}
       GIT_CONFIG_COUNT: 1
       GIT_CONFIG_KEY_0: safe.directory
@@ -42,24 +53,68 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate packaging safeguards
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: .\Build\TestPlaneToPBRPackaging.ps1
+
       - name: Run automation tests
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: ./Build/RunPlaneToPBRAutomationTests.ps1
+        run: .\Build\RunPlaneToPBRAutomationTests.ps1 -Variant $env:PLANETOPBR_VARIANT
 
       - name: Package plugin
         shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
-        run: ./Build/PackagePlaneToPBRPlugin.ps1
+        run: .\Build\PackagePlaneToPBRPlugin.ps1 -Variant $env:PLANETOPBR_VARIANT
+
+      - name: Independently smoke-test shipped ZIP
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: .\Build\SmokePlaneToPBRPackage.ps1 -Variant $env:PLANETOPBR_VARIANT
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PlaneToPBR-plugin
-          path: Artifacts/PlaneToPBR.zip
+          name: ${{ matrix.artifact }}
+          path: Artifacts/${{ matrix.zip }}
           if-no-files-found: error
+
+      - name: Upload automation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlaneToPBR-tests-${{ matrix.variant }}
+          path: Saved/Automation
+          if-no-files-found: warn
+
+  publish-release:
+    needs: package-plugin
+    runs-on: ubuntu-latest
+    env:
+      PLUGIN_TARGET_PLATFORMS: ${{ inputs.target-platforms || vars.PLUGIN_TARGET_PLATFORMS || 'Win64' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download standard ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: PlaneToPBR-plugin
+          path: Artifacts
+
+      - name: Download MCP ZIP
+        uses: actions/download-artifact@v4
+        with:
+          name: PlaneToPBRMCP-plugin
+          path: Artifacts
+
+      - name: Validate both release attachments
+        shell: pwsh
+        run: |
+          . ./Build/PlaneToPBRVariants.ps1
+          Assert-PlaneToPBRArchive -ZipPath "$PWD/Artifacts/PlaneToPBR.zip" -Variant Standard
+          Assert-PlaneToPBRArchive -ZipPath "$PWD/Artifacts/PlaneToPBRMCP.zip" -Variant MCP
 
       - name: Resolve release settings
         id: release
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: pwsh
         run: |
           $shouldPublish = "${{ github.ref_type }}" -eq "tag" -or "${{ inputs.publish-release }}" -eq "true"
           if ($shouldPublish -and "${{ github.ref_type }}" -ne "tag") {
@@ -82,32 +137,37 @@ jobs:
 
       - name: Publish GitHub release
         if: steps.release.outputs.should-publish == 'true'
-        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tagName = "${{ steps.release.outputs.tag-name }}"
           $notes = @"
-          Initial beta release of the PlaneToPBR Unreal plugin.
+          PlaneToPBR standard and MCP distributions.
 
-          ## Download
-          Download PlaneToPBR.zip, extract it, and copy the PlaneToPBR plugin folder into your Unreal project's Plugins directory.
+          ### Download one variant
+          - PlaneToPBR.zip: standard editor plugin, built for UE 5.8; no MCP dependencies.
+          - PlaneToPBRMCP.zip: independently installable superset with the same editor UI plus MCP tools, built with the same UE 5.8 engine; requires its ModelContextProtocol and ToolsetRegistry engine plugins.
+          Each ZIP contains PlaneToPBR/PlaneToPBR.uplugin. Copy that folder into your project's Plugins directory. To switch variants, close the editor and replace the existing PlaneToPBR folder completely. Do not install both variants or another engine-level copy together.
 
-          ## Includes
+          ### Includes
           - PlaneToPBR editor tab
           - Managed Hugging Face generation integration
           - Generated texture import
           - Material creation
           - Displaced plane mesh/actor creation
+          - MCP variant only: full generation and granular texture, import, material, and displaced-mesh tools
 
-          ## Validation
+          ### Validation
           - Packaged by GitHub Actions from commit $env:GITHUB_SHA
           - Built for target platforms: $env:PLUGIN_TARGET_PLATFORMS
+          - Both isolated builds, automation tests, archive inspections, and clean-host smoke checks must pass before publication.
           "@
 
           $releaseArgs = @(
             "release", "create", $tagName,
             "Artifacts/PlaneToPBR.zip",
+            "Artifacts/PlaneToPBRMCP.zip",
             "--target", $env:GITHUB_SHA,
             "--title", "PlaneToPBR $tagName",
             "--notes", $notes
@@ -118,3 +178,4 @@ jobs:
           }
 
           gh @releaseArgs
+          if ($LASTEXITCODE -ne 0) { throw "GitHub release publication failed." }

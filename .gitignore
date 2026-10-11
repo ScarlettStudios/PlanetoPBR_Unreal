@@ -23,6 +23,11 @@ Content/Developers/
 
 # Build/log/temp artifacts
 Artifacts/
+# Local engine reference copies and disposable validation projects
+/Build/MCPApiReference/
+/Build/MCPValidationHost/
+# Keep local agent plans on disk, outside source control
+/.junie/plans/
 *.log
 *.tmp
 *.temp

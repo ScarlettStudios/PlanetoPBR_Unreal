@@ -1,13 +1,15 @@
 param(
 	[string]$PluginPath = "Plugins/PlaneToPBR/PlaneToPBR.uplugin",
-	[string]$PackageDir = "Artifacts/PlaneToPBR",
-	[string]$ZipPath = "Artifacts/PlaneToPBR.zip",
+	[ValidateSet("Standard", "MCP")][string]$Variant = "Standard",
+	[string]$PackageDir,
+	[string]$ZipPath,
 	[string]$TargetPlatforms = $env:PLUGIN_TARGET_PLATFORMS,
 	[switch]$IncludeDebugSymbols,
 	[switch]$IncludeTests
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "PlaneToPBRVariants.ps1")
 
 function Resolve-FullPath {
 	param([string]$Path)
@@ -67,8 +69,17 @@ if ([string]::IsNullOrWhiteSpace($TargetPlatforms)) {
 
 $engineDir = Resolve-FullPath $env:UE_ENGINE_DIR
 $pluginFile = Resolve-FullPath $PluginPath
+if (-not $PackageDir) {
+	$PackageDir = if ($Variant -eq "Standard") { "Artifacts/PlaneToPBR" } else { "Artifacts/MCP/PlaneToPBR" }
+}
+if (-not $ZipPath) {
+	$ZipPath = if ($Variant -eq "Standard") { "Artifacts/PlaneToPBR.zip" } else { "Artifacts/PlaneToPBRMCP.zip" }
+}
 $packageOutput = Resolve-FullPath $PackageDir
 $zipOutput = Resolve-FullPath $ZipPath
+$workRoot = Resolve-FullPath "Artifacts/Variants/$Variant"
+$stageOutput = Join-Path $workRoot "Staging/PlaneToPBR"
+$uatOutput = Join-Path $workRoot "UAT/PlaneToPBR"
 
 if (-not (Test-Path -LiteralPath $engineDir -PathType Container)) {
 	throw "UE_ENGINE_DIR does not exist: $engineDir"
@@ -82,6 +93,10 @@ if ((Test-Path -LiteralPath (Join-Path $engineDir "Engine") -PathType Container)
 if (-not (Test-Path -LiteralPath $pluginFile -PathType Leaf)) {
 	throw "Plugin file does not exist: $pluginFile"
 }
+Assert-PlaneToPBREngine -EngineDir $engineDir -Variant $Variant
+Assert-PlaneToPBROutputPaths -Variant $Variant -PluginFile $pluginFile -Paths @($stageOutput, $uatOutput, $packageOutput, $zipOutput) -EngineDir $engineDir
+New-PlaneToPBRStage -PluginFile $pluginFile -Destination $stageOutput -Variant $Variant
+Assert-PlaneToPBRVariant -Root $stageOutput -Variant $Variant
 
 $runUatCandidates = @(
 	(Join-Path $engineDir "Build/BatchFiles/RunUAT.bat"),
@@ -106,20 +121,22 @@ if (Test-Path -LiteralPath $zipOutput) {
 	Remove-Item -LiteralPath $zipOutput -Force
 }
 
-Write-Host "Packaging PlaneToPBR plugin"
+Write-Host "Packaging PlaneToPBR $Variant plugin"
 Write-Host "UE_ENGINE_DIR: $engineDir"
 Write-Host "Plugin: $pluginFile"
 Write-Host "PackageDir: $packageOutput"
 Write-Host "TargetPlatforms: $TargetPlatforms"
 
 & $runUat BuildPlugin `
-	"-Plugin=$pluginFile" `
-	"-Package=$packageOutput" `
+	"-Plugin=$(Join-Path $stageOutput 'PlaneToPBR.uplugin')" `
+	"-Package=$uatOutput" `
 	"-TargetPlatforms=$TargetPlatforms"
 
 if ($LASTEXITCODE -ne 0) {
 	throw "RunUAT BuildPlugin failed with exit code $LASTEXITCODE."
 }
+Copy-Item -LiteralPath $uatOutput -Destination $packageOutput -Recurse -Force
+Assert-PlaneToPBRVariant -Root $packageOutput -Variant $Variant -RequireBinaries
 
 $packagedPluginFile = Join-Path $packageOutput "PlaneToPBR.uplugin"
 if (-not (Test-Path -LiteralPath $packagedPluginFile -PathType Leaf)) {
@@ -170,7 +187,8 @@ $disallowedReleaseEntries = @(
 if (-not $IncludeTests) {
 	$disallowedReleaseEntries += @(
 		"Source/PlaneToPBR/Private/Tests",
-		"Source/PlaneToPBREditor/Private/Tests"
+		"Source/PlaneToPBREditor/Private/Tests",
+		"Source/PlaneToPBRMCP/Private/Tests"
 	)
 }
 
@@ -205,7 +223,16 @@ if (-not (Test-Path -LiteralPath $zipParent)) {
 	New-Item -ItemType Directory -Path $zipParent | Out-Null
 }
 
-Compress-Archive -Path $packageOutput -DestinationPath $zipOutput -Force
+Assert-PlaneToPBRVariant -Root $packageOutput -Variant $Variant -RequireBinaries
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::Open($zipOutput, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+	foreach ($file in Get-ChildItem -LiteralPath $packageOutput -Recurse -Force -File) {
+		$name = "PlaneToPBR/" + $file.FullName.Substring($packageOutput.Length + 1).Replace('\', '/')
+		[System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $name) | Out-Null
+	}
+} finally { $archive.Dispose() }
+Assert-PlaneToPBRArchive -ZipPath $zipOutput -Variant $Variant -IncludeTests:$IncludeTests -IncludeDebugSymbols:$IncludeDebugSymbols
 
 Write-Host "Packaged plugin: $packageOutput"
 Write-Host "Zipped artifact: $zipOutput"
