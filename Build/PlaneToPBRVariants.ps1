@@ -70,8 +70,9 @@ function New-PlaneToPBRStage {
 	param([string]$PluginFile, [string]$Destination, [string]$Variant)
 	$source = Split-Path -Parent $PluginFile
 	$descriptor = Get-Content -Raw -LiteralPath $PluginFile | ConvertFrom-Json
-	if ((($descriptor.Modules.Name | Sort-Object) -join ',') -ne 'PlaneToPBR,PlaneToPBREditor' -or @($descriptor.Plugins | Where-Object { $_ }).Count -gt 0) {
-		throw "Source descriptor must contain only the standard modules and no MCP dependencies."
+	$baseModules = @($descriptor.Modules | Where-Object { $_.Name -in @("PlaneToPBR", "PlaneToPBREditor") })
+	if ($baseModules.Count -ne 2) {
+		throw "Source descriptor must contain both standard modules: PlaneToPBR and PlaneToPBREditor."
 	}
 	if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Recurse -Force }
 	New-Item -ItemType Directory -Path (Join-Path $Destination "Source") -Force | Out-Null
@@ -82,11 +83,31 @@ function New-PlaneToPBRStage {
 		$path = Join-Path $source $resource
 		if (Test-Path -LiteralPath $path) { Copy-Item -LiteralPath $path -Destination $Destination -Recurse }
 	}
-	if ($Variant -eq "MCP") {
-		$descriptor.Modules += [pscustomobject]@{ Name = "PlaneToPBRMCP"; Type = "Editor"; LoadingPhase = "PostEngineInit" }
-		$descriptor | Add-Member -NotePropertyName Plugins -NotePropertyValue @(
+	if ($Variant -eq "Standard") {
+		$descriptor.Modules = $baseModules
+		if ($descriptor.PSObject.Properties['Plugins']) {
+			$remainingPlugins = @($descriptor.Plugins | Where-Object { $_ -and $_.Name -notin @("ToolsetRegistry", "ModelContextProtocol") })
+			if ($remainingPlugins.Count -gt 0) {
+				$descriptor.Plugins = $remainingPlugins
+			} else {
+				$descriptor.PSObject.Properties.Remove('Plugins')
+			}
+		}
+	} else {
+		$mcpModule = $descriptor.Modules | Where-Object { $_.Name -eq "PlaneToPBRMCP" } | Select-Object -First 1
+		if (-not $mcpModule) {
+			$mcpModule = [pscustomobject]@{ Name = "PlaneToPBRMCP"; Type = "Editor"; LoadingPhase = "PostEngineInit" }
+		}
+		$descriptor.Modules = @($baseModules) + @($mcpModule)
+		$mcpPlugins = @(
 			[pscustomobject]@{ Name = "ToolsetRegistry"; Enabled = $true },
-			[pscustomobject]@{ Name = "ModelContextProtocol"; Enabled = $true })
+			[pscustomobject]@{ Name = "ModelContextProtocol"; Enabled = $true }
+		)
+		if ($descriptor.PSObject.Properties['Plugins']) {
+			$descriptor.Plugins = $mcpPlugins
+		} else {
+			$descriptor | Add-Member -NotePropertyName Plugins -NotePropertyValue $mcpPlugins
+		}
 	}
 	$descriptor | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $Destination "PlaneToPBR.uplugin") -Encoding UTF8
 }
